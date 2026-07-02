@@ -6,6 +6,7 @@ use std::path::Path;
 
 const BUF_SIZE: usize = 8192;
 
+#[derive(Clone)]
 pub struct Document {
     rope: Rope,
     encoding: &'static Encoding,
@@ -23,6 +24,14 @@ impl Document {
 
     pub fn encoding(&self) -> &'static Encoding {
         self.encoding
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.rope.len_lines()
+    }
+
+    pub fn line(&self, line_num: usize) -> String {
+        self.rope.line(line_num).to_string()
     }
     // Read the first chunk of the file, look for the BOM (Byte Order Mark)
     // To figure out what the encoding is eg. UTF-8
@@ -132,6 +141,18 @@ mod tests {
         assert_eq!(rope.to_string(), "hello\nworld\n");
         assert_eq!(enc, UTF_8);
         assert!(!bom);
+    }
+
+    #[test]
+    fn rope_returns_proper_line_count() {
+        let (rope, _, _) = read(b"1line\n2line\n3line", None);
+        assert_eq!(rope.len_lines(), 3);
+    }
+
+    #[test]
+    fn rope_returns_proper_line() {
+        let (rope, _, _) = read(b"Hello\nWorld\nCole\nIs\nGreat", None);
+        assert_eq!(rope.line(3).to_string(), "Is\n".to_string());
     }
 
     #[test]
