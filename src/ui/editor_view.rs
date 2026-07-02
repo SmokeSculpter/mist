@@ -1,25 +1,80 @@
-use floem::kurbo::Point;
+use floem::kurbo::{Point, Rect};
 use floem::peniko::color::AlphaColor;
-use floem::text::{Attrs, AttrsList, FontStyle};
+use floem::text::{Affinity, Attrs, AttrsList, FamilyOwned, FontStyle};
 use floem::{prelude::*, text::TextLayout};
 
-use crate::document::Document;
+use crate::editor::EditorState;
+use crate::grapheme::next_grapheme_boundary;
 
-pub fn editor_view(document: RwSignal<Document>) -> impl View {
+pub fn editor_view(editor: RwSignal<EditorState>) -> impl View {
     let lines = canvas(move |cx, size| {
-        document.with(|doc_state| {
-            for line in 0..doc_state.line_count() {
-                let line_text = doc_state.line(line);
+        editor.with(|editor_state| {
+            let head = editor_state.range.head();
+            let line_idx = editor_state.document.line_idx(head);
+            let line_start = editor_state.document.line_start(line_idx);
+            let cursor_col = head - line_start;
+
+            let font_size = 16.0;
+            let line_height = 24.0;
+
+            for line in 0..editor_state.document.line_count() {
+                let line_slice = editor_state.document.line(line);
+                let line_text = line_slice.to_string();
                 let text = line_text.trim_end_matches("\n");
+                let families = [
+                    FamilyOwned::Name("JetBrains Mono".to_string()),
+                    FamilyOwned::Monospace,
+                ];
 
                 let attrs = Attrs::new()
                     .font_style(FontStyle::Normal)
+                    .family(&families)
                     .color(AlphaColor::from_rgb8(220, 220, 220))
-                    .font_size(16.0);
-                let attrs_list = AttrsList::new(attrs);
-                let drawn_line = TextLayout::new_with_text(text, attrs_list, None);
+                    .font_size(font_size);
+                let mut attrs_list = AttrsList::new(attrs);
 
-                drawn_line.draw(cx, Point::new(0.0, line as f64 * 24.0));
+                let caret_bytes = if line == line_idx {
+                    let byte = editor_state
+                        .document
+                        .char_to_byte_in_line(cursor_col, &line_slice);
+                    let next_char = next_grapheme_boundary(&line_slice, cursor_col);
+                    let next_byte = editor_state
+                        .document
+                        .char_to_byte_in_line(next_char, &line_slice);
+
+                    if let Some(ch) = text[byte..].chars().next() {
+                        let end = byte + ch.len_utf8();
+                        attrs_list.add_span(
+                            byte..end,
+                            Attrs::new()
+                                .family(&[FamilyOwned::Name("JetBrains Mono".to_string())])
+                                .font_size(font_size)
+                                .color(AlphaColor::from_rgb8(30, 30, 30)),
+                        );
+                    }
+                    Some((byte, next_byte))
+                } else {
+                    None
+                };
+
+                let drawn_line = TextLayout::new_with_text(text, attrs_list, None);
+                let y_offset = line as f64 * line_height;
+
+                if let Some((byte, next_byte)) = caret_bytes {
+                    let x0 = drawn_line.cursor_point(byte, Affinity::Downstream).x;
+                    let x1 = drawn_line.cursor_point(next_byte, Affinity::Downstream).x;
+
+                    let caret_w = if x1 > x0 {
+                        x1 - x0
+                    } else {
+                        font_size as f64 * 0.6
+                    };
+
+                    let caret = Rect::from_origin_size((x0, y_offset), (caret_w, line_height));
+                    cx.fill(&caret, Color::from_rgb8(255, 255, 255), 0.0);
+                }
+
+                drawn_line.draw(cx, Point::new(0.0, y_offset));
             }
         })
     })

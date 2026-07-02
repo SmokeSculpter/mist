@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use encoding_rs::{CoderResult, Encoding, UTF_8};
-use ropey::{Rope, RopeBuilder};
+use ropey::{Rope, RopeBuilder, RopeSlice};
 use std::io::Read;
 use std::path::Path;
 
@@ -30,9 +30,26 @@ impl Document {
         self.rope.len_lines()
     }
 
-    pub fn line(&self, line_num: usize) -> String {
-        self.rope.line(line_num).to_string()
+    pub fn line(&self, line_num: usize) -> RopeSlice {
+        self.rope.line(line_num)
     }
+
+    pub fn line_idx(&self, char_idx: usize) -> usize {
+        self.rope.char_to_line(char_idx)
+    }
+
+    pub fn line_start(&self, char_idx: usize) -> usize {
+        self.rope.line_to_char(char_idx)
+    }
+
+    pub fn char_to_byte_in_line(&self, line_offset: usize, line: &RopeSlice) -> usize {
+        line.char_to_byte(line_offset)
+        // line.char_indices()
+        //     .nth(line_offset)
+        //     .map(|(b, _)| b)
+        //     .unwrap_or(line.len())
+    }
+
     // Read the first chunk of the file, look for the BOM (Byte Order Mark)
     // To figure out what the encoding is eg. UTF-8
     // Returns everthing need to decode the chunk
