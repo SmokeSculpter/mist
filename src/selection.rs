@@ -349,3 +349,193 @@ impl Selection {
         self
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::movement::Direction;
+    use ropey::Rope;
+    use smallvec::smallvec;
+
+    fn fmt(sel: &Selection) -> String {
+        sel.ranges()
+            .iter()
+            .map(|r| format!("{}/{}", r.anchor, r.head))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    // ----- Range -----
+
+    #[test]
+    fn from_to_len_empty() {
+        let r = Range::new(6, 3);
+        assert_eq!(r.from(), 3);
+        assert_eq!(r.to(), 6);
+        assert_eq!(r.len(), 3);
+        assert!(!r.is_empty());
+        assert!(Range::point(4).is_empty());
+    }
+
+    #[test]
+    fn direction_and_empty_is_forward() {
+        assert_eq!(Range::new(2, 6).direction(), Direction::Forward);
+        assert_eq!(Range::new(6, 2).direction(), Direction::Backward);
+        // Empty range should be 1 selction forard
+        assert_eq!(Range::point(3).direction(), Direction::Forward);
+    }
+
+    #[test]
+    fn overlap_returns_correctly() {
+        let ov = |a: (usize, usize), b: (usize, usize)| {
+            Range::new(a.0, a.1).overlaps(&Range::new(b.0, b.1))
+        };
+
+        // Adjacement non-zero width ranges do not overlap
+        assert!(!ov((0, 3), (3, 6)));
+        assert!(!ov((3, 0), (6, 3)));
+        // Overlapping in the middle
+        assert!(ov((0, 4), (3, 6)));
+        assert!(ov((6, 3), (4, 0)));
+        // Zero width does not overlap adjacement edge, but shares the left edge of another
+        assert!(!ov((0, 3), (3, 3)));
+        assert!(ov((1, 4), (1, 1)));
+        assert!(ov((3, 3), (1, 4)));
+        // Different points never overlap but the same ones do
+        assert!(!ov((1, 1), (2, 2)));
+        assert!(ov((1, 1), (1, 1)));
+    }
+
+    #[test]
+    fn merge_forward_and_backward() {
+        assert_eq!(Range::new(0, 3).merge(Range::new(2, 6)), Range::new(0, 6));
+        let m = Range::new(6, 2).merge(Range::new(4, 1));
+
+        assert_eq!((m.anchor, m.head), (6, 1));
+    }
+
+    #[test]
+    fn cursor_is_block_left_edge() {
+        let rope = Rope::from_str("hello world");
+        let s = rope.slice(..);
+        assert_eq!(Range::point(3).cursor(&s), 3); // point: head itself
+        assert_eq!(Range::new(2, 6).cursor(&s), 5); // forward: one grapheme back from head
+        assert_eq!(Range::new(6, 2).cursor(&s), 2); // backward: head itself
+    }
+
+    #[test]
+    fn put_cursor_move_collapses() {
+        let rope = Rope::from_str("hello world");
+        let s = rope.slice(..);
+        assert_eq!(Range::new(0, 5).put_cursor(&s, 8, false), Range::point(8));
+    }
+
+    #[test]
+    fn put_cursor_extend_1_width() {
+        let rope = Rope::from_str("hello world");
+        let s = rope.slice(..);
+        // extend a cursor at 2 forward to 5 -> covers char 5 (head = next boundary)
+        let f = Range::point(2).put_cursor(&s, 5, true);
+        assert_eq!((f.anchor, f.head), (2, 6));
+        // extend a cursor at 5 backward to 2 -> anchor jumps forward one, head lands on 2
+        let b = Range::point(5).put_cursor(&s, 2, true);
+        assert_eq!((b.anchor, b.head), (6, 2));
+    }
+
+    #[test]
+    fn min_width_1() {
+        let rope = Rope::from_str("hello");
+        let s = rope.slice(..);
+        let w = Range::point(3).min_width_1(&s);
+        assert_eq!((w.anchor, w.head), (3, 4)); // point widened
+        let nz = Range::new(1, 3);
+        assert_eq!(nz.min_width_1(&s), nz); // non-empty untouched
+    }
+
+    #[test]
+    fn grapheme_aligned_snaps_off_combining() {
+        // "e" + combining acute = one grapheme (2 chars); index 1 is mid-cluster
+        let rope = Rope::from_str("e\u{0301}x");
+        let s = rope.slice(..);
+        let a = Range::point(1).grapheme_aligned(&s);
+        assert_eq!((a.anchor, a.head), (0, 0));
+    }
+
+    // ---- Selection ----
+
+    #[test]
+    #[should_panic]
+    fn new_empty_panics() {
+        let _ = Selection::new(smallvec![], 0);
+    }
+
+    #[test]
+    fn point_and_single() {
+        assert_eq!(fmt(&Selection::point(4)), "4/4");
+        assert_eq!(fmt(&Selection::single(2, 5)), "2/5");
+        assert_eq!(Selection::point(4).len(), 1);
+    }
+
+    #[test]
+    fn normalize_sorts_and_merges() {
+        let sel = Selection::new(
+            smallvec![
+                Range::new(10, 12),
+                Range::new(6, 7),
+                Range::new(4, 5),
+                Range::new(3, 4),
+                Range::new(0, 6),
+                Range::new(7, 8),
+                Range::new(9, 13),
+                Range::new(13, 14),
+            ],
+            0,
+        );
+        assert_eq!(fmt(&sel), "0/6,6/7,7/8,9/13,13/14");
+    }
+
+    #[test]
+    fn normalize_recomputes_primary() {
+        // three ranges collapse into one; primary must survive the merge
+        let sel = Selection::new(
+            smallvec![Range::new(0, 2), Range::new(1, 5), Range::new(4, 7)],
+            2,
+        );
+        assert_eq!(fmt(&sel), "0/7");
+        assert_eq!(sel.primary_index(), 0);
+    }
+
+    #[test]
+    fn merges_adjacent_points() {
+        let sel = Selection::new(
+            smallvec![
+                Range::new(10, 12),
+                Range::new(12, 12),
+                Range::new(12, 12),
+                Range::new(10, 10),
+                Range::new(8, 10),
+            ],
+            0,
+        );
+        assert_eq!(fmt(&sel), "8/10,10/12,12/12");
+    }
+
+    #[test]
+    fn push_sets_primary_and_normalizes() {
+        let sel = Selection::point(0).push(Range::new(5, 8));
+        assert_eq!(fmt(&sel), "0/0,5/8");
+        assert_eq!(sel.primary(), Range::new(5, 8)); // pushed range is primary
+    }
+
+    #[test]
+    fn transform_maps_every_range() {
+        let sel = Selection::single(0, 0).push(Range::new(4, 4));
+        let shifted = sel.transform(|r| Range::point(r.head + 1));
+        assert_eq!(fmt(&shifted), "1/1,5/5");
+    }
+
+    #[test]
+    fn into_single_keeps_primary() {
+        let sel = Selection::point(0).push(Range::new(5, 8)); // primary = 5/8
+        assert_eq!(fmt(&sel.into_single()), "5/8");
+    }
+}
