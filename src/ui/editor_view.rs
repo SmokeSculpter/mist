@@ -5,6 +5,7 @@ use floem::{prelude::*, text::TextLayout};
 
 use crate::editor::Editor;
 use crate::grapheme::next_grapheme_boundary;
+use crate::movement::Direction;
 
 pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     let lines = canvas(move |cx, size| {
@@ -15,7 +16,11 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
             let font_size = 16.0;
             let line_height = 24.0;
 
-            for line in 0..editor_state.document.line_count() {
+            let line_count = editor_state.document.line_count();
+            let visible = (size.height / line_height).ceil() as usize + 1;
+            let last = visible.min(line_count);
+
+            for line in 0..last {
                 let line_slice = editor_state.document.line(line);
                 let line_text = line_slice.to_string();
                 let text = line_text.trim_end_matches("\n");
@@ -86,10 +91,22 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
         })
     })
     .style(|s| {
-        s.background(Color::from_rgb8(30, 30, 30))
+        s.keyboard_navigable()
+            .background(Color::from_rgb8(30, 30, 30))
             .width_full()
             .height_full()
-    });
+    })
+    .on_event_stop(
+        el::KeyDown,
+        move |_cx, KeyboardEvent { key, .. }| match key {
+            Key::Character(ch) if ch == "h" => editor.update(|e| e.move_h(Direction::Backward, 1)),
+            Key::Character(ch) if ch == "l" => editor.update(|e| e.move_h(Direction::Forward, 1)),
+            Key::Character(ch) if ch == "j" => editor.update(|e| e.move_v(Direction::Forward, 1)),
+            Key::Character(ch) if ch == "k" => editor.update(|e| e.move_v(Direction::Backward, 1)),
+            _ => {}
+        },
+    )
+    .request_focus(|| {});
 
     lines
 }

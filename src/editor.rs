@@ -1,4 +1,5 @@
 use crate::document::Document;
+use crate::movement::{Direction, Movement, move_horizontally, move_vertically};
 use crate::selection::Selection;
 use anyhow::Result;
 use std::path::Path;
@@ -17,5 +18,21 @@ impl Editor {
             document: document,
             selection,
         })
+    }
+
+    pub fn move_h(&mut self, dir: Direction, count: usize) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self
+            .selection
+            .clone()
+            .transform(|r| move_horizontally(&rope, r, dir, count, Movement::Move));
+    }
+
+    pub fn move_v(&mut self, dir: Direction, count: usize) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self
+            .selection
+            .clone()
+            .transform(|r| move_vertically(&rope, r, dir, count, Movement::Move));
     }
 }
