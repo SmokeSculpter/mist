@@ -46,6 +46,12 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "k" => {
                 editor.move_v(Direction::Backward, 1, Movement::Extend)
             }
+            Key::Character(ch) if ch == "w" => editor.extend_next_word_start(),
+            Key::Character(ch) if ch == "W" => editor.extend_next_long_word_start(),
+            Key::Character(ch) if ch == "e" => editor.extend_next_word_end(),
+            Key::Character(ch) if ch == "E" => editor.extend_next_long_word_end(),
+            Key::Character(ch) if ch == "b" => editor.extend_prev_word_start(),
+            Key::Character(ch) if ch == "B" => editor.extend_prev_long_word_start(),
             _ => {}
         },
     }
@@ -60,6 +66,17 @@ mod tests {
     fn create_editor() -> Editor {
         let path = "./src/document.rs";
         Editor::new(Path::new(&path)).unwrap()
+    }
+
+    #[test]
+    fn w_extends_in_select_mode() {
+        let mut e = create_editor();
+        e.enter_select();
+        let anchor = e.selection.primary().anchor;
+        handle_key(&mut e, &Key::Character("w".to_string()));
+        let r = e.selection.primary();
+        assert_eq!(r.anchor, anchor); // anchor stays put
+        assert!(r.head > anchor); // head extends over the word
     }
 
     #[test]

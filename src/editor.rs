@@ -5,8 +5,9 @@ use crate::movement::{
     move_next_word_end, move_next_word_start, move_prev_long_word_end, move_prev_long_word_start,
     move_prev_word_end, move_prev_word_start, move_vertically,
 };
-use crate::selection::Selection;
+use crate::selection::{Range, Selection};
 use anyhow::Result;
+use ropey::RopeSlice;
 use std::path::Path;
 
 pub struct Editor {
@@ -39,12 +40,28 @@ impl Editor {
         self.mode = Mode::Select;
     }
 
+    fn extend_word(&mut self, f: impl Fn(RopeSlice, Range, usize) -> Range) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self.selection.clone().transform(|r| {
+            let w = f(rope, r, 1);
+            r.put_cursor(rope, w.cursor(rope), true)
+        });
+    }
+
+    pub fn extend_next_word_end(&mut self) {
+        self.extend_word(move_next_word_end);
+    }
+
     pub fn move_next_word_end(&mut self) {
         let rope = self.document.rope().slice(..);
         self.selection = self
             .selection
             .clone()
             .transform(|r| move_next_word_end(rope, r, 1));
+    }
+
+    pub fn extend_next_long_word_end(&mut self) {
+        self.extend_word(move_next_long_word_end);
     }
 
     pub fn move_next_long_word_end(&mut self) {
@@ -55,12 +72,20 @@ impl Editor {
             .transform(|r| move_next_long_word_end(rope, r, 1));
     }
 
+    pub fn extend_next_word_start(&mut self) {
+        self.extend_word(move_next_word_start);
+    }
+
     pub fn move_next_word_start(&mut self) {
         let rope = self.document.rope().slice(..);
         self.selection = self
             .selection
             .clone()
             .transform(|r| move_next_word_start(rope, r, 1));
+    }
+
+    pub fn extend_next_long_word_start(&mut self) {
+        self.extend_word(move_next_long_word_start);
     }
 
     pub fn move_next_long_word_start(&mut self) {
@@ -71,12 +96,20 @@ impl Editor {
             .transform(|r| move_next_long_word_start(rope, r, 1));
     }
 
+    pub fn extend_prev_word_end(&mut self) {
+        self.extend_word(move_prev_word_end);
+    }
+
     pub fn move_prev_word_end(&mut self) {
         let rope = self.document.rope().slice(..);
         self.selection = self
             .selection
             .clone()
             .transform(|r| move_prev_word_end(rope, r, 1));
+    }
+
+    pub fn extend_prev_long_word_end(&mut self) {
+        self.extend_word(move_prev_long_word_end);
     }
 
     pub fn move_prev_long_word_end(&mut self) {
@@ -87,12 +120,20 @@ impl Editor {
             .transform(|r| move_prev_long_word_end(rope, r, 1));
     }
 
+    pub fn extend_prev_word_start(&mut self) {
+        self.extend_word(move_prev_word_start);
+    }
+
     pub fn move_prev_word_start(&mut self) {
         let rope = self.document.rope().slice(..);
         self.selection = self
             .selection
             .clone()
             .transform(|r| move_prev_word_start(rope, r, 1));
+    }
+
+    pub fn extend_prev_long_word_start(&mut self) {
+        self.extend_word(move_prev_long_word_start);
     }
 
     pub fn move_prev_long_word_start(&mut self) {
