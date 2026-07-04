@@ -29,6 +29,16 @@ impl Range {
         Self::new(head, head)
     }
 
+    pub fn goal_col(&self) -> Option<usize> {
+        self.goal_col
+    }
+
+    #[must_use]
+    pub fn with_goal_col(mut self, goal_col: usize) -> Self {
+        self.goal_col = Some(goal_col);
+        self
+    }
+
     #[inline]
     #[must_use]
     pub fn from(&self) -> usize {
