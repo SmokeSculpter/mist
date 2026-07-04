@@ -8,6 +8,7 @@ mod mode;
 mod movement;
 mod search;
 mod selection;
+mod transaction;
 mod ui;
 use floem::prelude::*;
 use std::path::Path;
