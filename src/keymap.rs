@@ -1,13 +1,21 @@
-use crate::{editor::Editor, mode::Mode, movement::Direction};
+use crate::{
+    editor::Editor,
+    mode::Mode,
+    movement::{Direction, Movement},
+};
 use floem::prelude::{Key, NamedKey};
 
 pub fn handle_key(editor: &mut Editor, key: &Key) {
     match editor.mode {
         Mode::Normal => match key {
-            Key::Character(ch) if ch == "h" => editor.move_h(Direction::Backward, 1),
-            Key::Character(ch) if ch == "l" => editor.move_h(Direction::Forward, 1),
-            Key::Character(ch) if ch == "j" => editor.move_v(Direction::Forward, 1),
-            Key::Character(ch) if ch == "k" => editor.move_v(Direction::Backward, 1),
+            Key::Character(ch) if ch == "h" => {
+                editor.move_h(Direction::Backward, 1, Movement::Move)
+            }
+            Key::Character(ch) if ch == "l" => editor.move_h(Direction::Forward, 1, Movement::Move),
+            Key::Character(ch) if ch == "j" => editor.move_v(Direction::Forward, 1, Movement::Move),
+            Key::Character(ch) if ch == "k" => {
+                editor.move_v(Direction::Backward, 1, Movement::Move)
+            }
             Key::Character(ch) if ch == "i" => editor.enter_insert(),
             Key::Character(ch) if ch == "v" => editor.enter_select(),
             Key::Character(ch) if ch == "w" => editor.move_next_word_start(),
@@ -22,7 +30,24 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Named(NamedKey::Escape) => editor.enter_normal(),
             _ => {}
         },
-        Mode::Select => {}
+        Mode::Select => match key {
+            Key::Named(NamedKey::Escape) => editor.enter_normal(),
+            Key::Character(ch) if ch == "v" => editor.enter_normal(),
+            Key::Character(ch) if ch == "i" => editor.enter_insert(),
+            Key::Character(ch) if ch == "h" => {
+                editor.move_h(Direction::Backward, 1, Movement::Extend)
+            }
+            Key::Character(ch) if ch == "l" => {
+                editor.move_h(Direction::Forward, 1, Movement::Extend)
+            }
+            Key::Character(ch) if ch == "j" => {
+                editor.move_v(Direction::Forward, 1, Movement::Extend)
+            }
+            Key::Character(ch) if ch == "k" => {
+                editor.move_v(Direction::Backward, 1, Movement::Extend)
+            }
+            _ => {}
+        },
     }
 }
 
@@ -35,6 +60,17 @@ mod tests {
     fn create_editor() -> Editor {
         let path = "./src/document.rs";
         Editor::new(Path::new(&path)).unwrap()
+    }
+
+    #[test]
+    fn l_extends_selection_in_select_mode() {
+        let mut e = create_editor();
+        e.enter_select();
+        let anchor = e.selection.primary().anchor;
+        handle_key(&mut e, &Key::Character("l".to_string()));
+        let r = e.selection.primary();
+        assert_eq!(r.anchor, anchor);
+        assert!(r.head > anchor);
     }
 
     #[test]
@@ -69,6 +105,14 @@ mod tests {
     }
 
     #[test]
+    fn i_enters_insert_mode_in_select_mode() {
+        let mut editor = create_editor();
+        editor.enter_select();
+        handle_key(&mut editor, &Key::Character("i".to_string()));
+        assert_eq!(editor.mode, Mode::Insert);
+    }
+
+    #[test]
     fn esc_enters_normal_mode_in_insert_mode() {
         let mut editor = create_editor();
         editor.enter_insert();
@@ -81,5 +125,13 @@ mod tests {
         let mut editor = create_editor();
         handle_key(&mut editor, &Key::Character("v".to_string()));
         assert_eq!(editor.mode, Mode::Select);
+    }
+
+    #[test]
+    fn v_enters_normal_mode_in_select_mode() {
+        let mut editor = create_editor();
+        editor.enter_select();
+        handle_key(&mut editor, &Key::Character("v".to_string()));
+        assert_eq!(editor.mode, Mode::Normal);
     }
 }

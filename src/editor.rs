@@ -103,19 +103,19 @@ impl Editor {
             .transform(|r| move_prev_long_word_start(rope, r, 1));
     }
 
-    pub fn move_h(&mut self, dir: Direction, count: usize) {
+    pub fn move_h(&mut self, dir: Direction, count: usize, movement: Movement) {
         let rope = self.document.rope().slice(..);
         self.selection = self
             .selection
             .clone()
-            .transform(|r| move_horizontally(rope, r, dir, count, Movement::Move));
+            .transform(|r| move_horizontally(rope, r, dir, count, movement));
     }
 
-    pub fn move_v(&mut self, dir: Direction, count: usize) {
+    pub fn move_v(&mut self, dir: Direction, count: usize, movement: Movement) {
         let rope = self.document.rope().slice(..);
         self.selection = self
             .selection
             .clone()
-            .transform(|r| move_vertically(rope, r, dir, count, Movement::Move));
+            .transform(|r| move_vertically(rope, r, dir, count, movement));
     }
 }
