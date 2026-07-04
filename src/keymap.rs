@@ -1,3 +1,9 @@
+//! Pure key dispatch: `handle_key` maps a keypress to an `Editor` mutation, gated by
+//! the current mode. Kept free of floem wiring (the `on_event_stop`/focus plumbing
+//! lives in `editor_view`) so it can be unit-tested headlessly. Count prefixes and
+//! pending-input motions (f/t, g-prefix) will grow this into a small input-state
+//! machine; see the roadmap.
+
 use crate::{
     editor::Editor,
     mode::Mode,
@@ -5,6 +11,9 @@ use crate::{
 };
 use floem::prelude::{Key, NamedKey};
 
+/// Interpret one keypress in the current mode and apply it to `editor`. Normal =
+/// motions collapse (`Movement::Move`); Select = the same motions extend
+/// (`Movement::Extend` / the `extend_*` word variants); Insert = Esc back to Normal.
 pub fn handle_key(editor: &mut Editor, key: &Key) {
     match editor.mode {
         Mode::Normal => match key {

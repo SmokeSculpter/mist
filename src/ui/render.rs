@@ -49,6 +49,8 @@ pub struct LineInfo {
     pub layout: TextLayout,
     /// Block/bar caret rects on this line (usually 0 or 1; more with multi-cursor).
     pub caret_rects: Vec<Rect>,
+    /// Highlights for current selections on this line
+    pub selection_rects: Vec<Rect>,
     /// Char index of the line's first char (for selection-rect math, item 5).
     pub line_start: usize,
     /// Char count of the line excluding the trailing newline (for selection clamp).
@@ -123,6 +125,28 @@ pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> Scre
         let y = line as f64 * font.line_height;
         let true_line_height = layout.size().height;
 
+        let line_end = line_start + char_len;
+        let mut selection_rects = Vec::new();
+        for r in editor.selection.ranges() {
+            let seg_from = r.from().max(line_start);
+            let seg_to = r.to().min(line_end);
+
+            if seg_from < seg_to {
+                let b0 = editor
+                    .document
+                    .char_to_byte_in_line(seg_from - line_start, line_slice);
+                let b1 = editor
+                    .document
+                    .char_to_byte_in_line(seg_to - line_start, line_slice);
+                let x0 = layout.cursor_point(b0, Affinity::Downstream).x;
+                let x1 = layout.cursor_point(b1, Affinity::Downstream).x;
+                selection_rects.push(Rect::from_origin_size(
+                    (x0, y - true_line_height * 0.25),
+                    (x1 - x0, font.line_height),
+                ));
+            }
+        }
+
         let mut caret_rects = Vec::with_capacity(caret_bytes.len());
         for (byte, next_byte) in caret_bytes {
             let x0 = layout.cursor_point(byte, Affinity::Downstream).x;
@@ -145,6 +169,7 @@ pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> Scre
             y,
             layout,
             caret_rects,
+            selection_rects,
             line_start,
             char_len,
         });
@@ -166,5 +191,13 @@ pub fn paint_cursor(cx: &mut PaintCx, screen: &ScreenLines) {
 pub fn paint_text(cx: &mut PaintCx, screen: &ScreenLines) {
     for line in &screen.lines {
         line.layout.draw(cx, Point::new(0.0, line.y));
+    }
+}
+
+pub fn paint_selections(cx: &mut PaintCx, screen: &ScreenLines) {
+    for line in &screen.lines {
+        for rect in &line.selection_rects {
+            cx.fill(rect, Color::from_rgb8(38, 79, 120), 0.0);
+        }
     }
 }

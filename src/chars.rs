@@ -1,9 +1,15 @@
+//! Character classification + the word-motion scanner. Word motions (w/b/e/W/B/E)
+//! are defined by transitions between character *categories* — a boundary is where
+//! the category changes. Ported from Helix's `chars.rs`/`movement.rs`.
+
 use crate::movement::{WordMotionTarget, reached_target};
 use ropey::iter::Chars;
 
 use crate::line_ending::LineEnding;
 use crate::selection::Range;
 
+/// The category of a char for word-motion purposes. A "word" motion stops wherever
+/// two adjacent chars fall in different categories (see `movement::is_word_boundary`).
 #[derive(Eq, PartialEq, Debug)]
 pub enum CharCategory {
     WhiteSpace,
@@ -13,6 +19,8 @@ pub enum CharCategory {
     Unknown,
 }
 
+/// Bucket a char into its `CharCategory`. Order matters: line endings are checked
+/// before generic whitespace since a `\n` is both, but movements treat it as Eol.
 #[inline]
 pub fn categorize_char(ch: char) -> CharCategory {
     if char_is_line_ending(ch) {
@@ -51,16 +59,23 @@ pub fn char_is_punctuation(ch: char) -> bool {
     )
 }
 
+/// Word chars: alphanumeric plus `_` (so `foo_bar` is one word, like most editors).
 #[inline]
 pub fn char_is_word(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
 
+/// Extension trait on the rope's char iterator that walks one word motion.
 pub trait CharHelpers {
     fn range_to_target(&mut self, target: WordMotionTarget, origin: Range) -> Range;
 }
 
 impl CharHelpers for Chars<'_> {
+    /// Scan from the iterator's current position to the next `target` boundary,
+    /// returning the `Range` (anchor..head) covering the traversed span. The core
+    /// of every word motion; `movement::word_move` sets up the iterator and calls
+    /// this once per count. Handles both directions by reversing the iterator and
+    /// flipping the index-advance step. Ported near-verbatim from Helix.
     fn range_to_target(&mut self, target: WordMotionTarget, origin: Range) -> Range {
         let is_prev = matches!(
             target,

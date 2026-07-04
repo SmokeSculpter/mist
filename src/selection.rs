@@ -1,3 +1,8 @@
+//! The positional state of the editor: `Selection` (a set of `Range`s with one
+//! primary) built on the block-cursor `Range`. Ported from Helix `selection.rs`.
+//! This is the foundation everything depends on — movement transforms ranges,
+//! render draws them, and every command reads/writes the selection.
+
 use ropey::RopeSlice;
 use smallvec::{SmallVec, smallvec};
 
@@ -9,6 +14,13 @@ use crate::{
     movement::Direction,
 };
 
+/// A single selection range, half-open `[from, to)` in char indices.
+///
+/// `anchor` is the fixed end, `head` the moving end — so `anchor > head` means the
+/// range points backward, and a bare cursor is `anchor == head`. In the block-cursor
+/// model the "cursor" is the grapheme just before `head` (see [`Range::cursor`]).
+/// `goal_col` is the sticky target column for vertical motion: it survives passing
+/// through short lines so `j`/`k` return to the original column (Helix behavior).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range {
     pub anchor: usize,
@@ -39,6 +51,8 @@ impl Range {
         self
     }
 
+    /// The lower bound of the range, regardless of direction. Pair with [`Range::to`]
+    /// to get sorted `[from, to)` bounds without caring which end is the head.
     #[inline]
     #[must_use]
     pub fn from(&self) -> usize {
@@ -93,6 +107,9 @@ impl Range {
         }
     }
 
+    /// Do these two ranges touch? Shared left edge counts (so adjacent zero-width
+    /// points at the same spot merge), but merely-adjacent non-empty ranges do not.
+    /// Drives the merge step in [`Selection::normalize`].
     #[must_use]
     pub fn overlaps(&self, other: &Self) -> bool {
         self.from() == other.from() || (self.to() > other.from() && other.to() > self.from())
@@ -148,6 +165,9 @@ impl Range {
         text.slice(self.from()..self.to())
     }
 
+    /// Snap both ends to grapheme boundaries so a range can never split a cluster
+    /// (e.g. an `e` + combining accent). Direction-aware: the outer edges expand and
+    /// the inner edges contract as appropriate. Drops `goal_col` if the anchor moved.
     #[must_use]
     pub fn grapheme_aligned(&self, slice: RopeSlice) -> Self {
         use std::cmp::Ordering;
@@ -177,6 +197,8 @@ impl Range {
         }
     }
 
+    /// Widen a zero-width (point) range to cover one grapheme, so the block cursor
+    /// always has a cell to sit on. Non-empty ranges are returned unchanged.
     #[inline]
     #[must_use]
     pub fn min_width_1(&self, text: RopeSlice) -> Self {
@@ -191,6 +213,10 @@ impl Range {
         }
     }
 
+    /// The block-cursor position: the char index of the grapheme the cursor sits on.
+    /// For a forward range that's one grapheme back from `head` (since `head` is the
+    /// exclusive end); for a backward range or a point it's `head` itself. This is
+    /// what render draws the block over.
     #[inline]
     #[must_use]
     pub fn cursor(&self, text: RopeSlice) -> usize {
@@ -201,6 +227,12 @@ impl Range {
         }
     }
 
+    /// Move the cursor to `char_idx`. With `extend == false` the range collapses to a
+    /// point there (Normal-mode motion); with `extend == true` the anchor is kept and
+    /// the head moves, growing the selection (Select-mode / word-extend). The
+    /// grapheme-boundary juggling handles crossing the anchor: when the head flips
+    /// past the anchor, the anchor shifts by one grapheme so the covered cell stays
+    /// consistent. Mirrors Helix `put_cursor` exactly.
     #[inline]
     #[must_use]
     pub fn put_cursor(self, text: RopeSlice, char_idx: usize, extend: bool) -> Range {
@@ -223,6 +255,11 @@ impl Range {
     }
 }
 
+/// One or more `Range`s with a designated primary (the one commands act on / the
+/// caret you drive). Invariant, maintained by [`Selection::normalize`]: ranges are
+/// sorted by `from` and non-overlapping (overlaps are merged). The render relies on
+/// the sorted order for its lockstep caret walk. `SmallVec<[Range; 1]>` keeps the
+/// common single-cursor case allocation-free.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selection {
     ranges: SmallVec<[Range; 1]>,
@@ -313,6 +350,10 @@ impl Selection {
         self.normalize()
     }
 
+    /// Map every range through `f` and re-normalize. This is how motions apply — a
+    /// movement is a `Range -> Range` function run over each cursor, and normalize
+    /// then merges any that collided. The `Copy` bound on `Direction`/`Movement`
+    /// exists so the same closure can run across all ranges here.
     pub fn transform<F: FnMut(Range) -> Range>(mut self, mut f: F) -> Self {
         for range in self.ranges.iter_mut() {
             *range = f(*range);
@@ -337,6 +378,9 @@ impl Selection {
         self.transform(|r| Range::point(r.cursor(text)))
     }
 
+    /// Restore the invariant: sort ranges by `from`, merge any that overlap, and
+    /// track which merged range the primary ended up in (so `primary_index` still
+    /// points at it afterward). No-op for a single range.
     fn normalize(mut self) -> Self {
         if self.ranges.len() < 2 {
             return self;

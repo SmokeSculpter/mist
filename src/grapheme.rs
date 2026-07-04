@@ -1,6 +1,17 @@
+//! Grapheme-cluster boundary math over a rope. The cursor moves by *graphemes*
+//! (user-perceived characters — an `é` or a flag emoji is one step), not by chars
+//! or bytes, so these are the movement primitives every motion is built on.
+//!
+//! All positions are **char indices** into the rope (the project's one coordinate
+//! system). Internally we drive `unicode_segmentation::GraphemeCursor` over the
+//! rope's byte chunks, feeding it more chunks / pre-context on demand — that's what
+//! the `NextChunk`/`PrevChunk`/`PreContext` arms handle. Ported from Helix.
+
 use ropey::{RopeSlice, str_utils::byte_to_char_idx};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 
+/// Char index `n` grapheme boundaries forward from `char_idx`, clamped to the end
+/// of the text. `n == 1` is the common "step right over one grapheme" case.
 #[must_use]
 pub fn nth_next_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -> usize {
     debug_assert!(char_idx <= slice.len_chars());
@@ -37,11 +48,15 @@ pub fn nth_next_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -
     chunk_char_idx + tmp
 }
 
+/// One grapheme boundary forward. Convenience for the `n == 1` case.
 #[must_use]
 pub fn next_grapheme_boundary(slice: RopeSlice, char_idx: usize) -> usize {
     nth_next_grapheme_boundary(slice, char_idx, 1)
 }
 
+/// Snap `char_idx` up to the nearest grapheme boundary at or after it. If it's
+/// already on a boundary it's returned unchanged; if it's mid-cluster it moves to
+/// the cluster's end. Used to keep selections from landing inside a grapheme.
 #[must_use]
 pub fn ensure_grapheme_boundary_next(slice: RopeSlice, char_idx: usize) -> usize {
     if char_idx == 0 {
@@ -51,6 +66,7 @@ pub fn ensure_grapheme_boundary_next(slice: RopeSlice, char_idx: usize) -> usize
     }
 }
 
+/// Char index `n` grapheme boundaries backward from `char_idx`, clamped to 0.
 #[must_use]
 pub fn nth_prev_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -> usize {
     debug_assert!(char_idx <= slice.len_chars());
@@ -87,11 +103,14 @@ pub fn nth_prev_grapheme_boundary(slice: RopeSlice, char_idx: usize, n: usize) -
     chunk_char_idx + tmp
 }
 
+/// One grapheme boundary backward. Convenience for the `n == 1` case.
 #[must_use]
 pub fn prev_grapheme_boundary(slice: RopeSlice, char_idx: usize) -> usize {
     nth_prev_grapheme_boundary(slice, char_idx, 1)
 }
 
+/// Snap `char_idx` down to the nearest grapheme boundary at or before it — the
+/// mirror of `ensure_grapheme_boundary_next`.
 #[must_use]
 pub fn ensure_grapheme_boundary_prev(slice: RopeSlice, char_idx: usize) -> usize {
     if char_idx == slice.len_chars() {

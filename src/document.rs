@@ -1,3 +1,9 @@
+//! The text buffer: a `ropey::Rope` (the source of truth) plus the encoding it was
+//! decoded from. Reading is a streaming, chunked decode with BOM + charset detection,
+//! ported from Helix's `from_reader`. All the line/char/byte accessors here address
+//! the rope in the project's single coordinate system (char indices). Saving back to
+//! disk is a later roadmap item.
+
 use anyhow::{Result, anyhow};
 use encoding_rs::{CoderResult, Encoding, UTF_8};
 use ropey::{Rope, RopeBuilder, RopeSlice};
@@ -6,6 +12,9 @@ use std::path::Path;
 
 const BUF_SIZE: usize = 8192;
 
+/// An open buffer. Fields are private with accessors below so the rope stays the one
+/// mutation point. `encoding`/`has_bom` are retained so a future save can round-trip
+/// the file in its original encoding.
 #[derive(Clone)]
 pub struct Document {
     rope: Rope,
@@ -42,6 +51,9 @@ impl Document {
         self.rope.line_to_char(char_idx)
     }
 
+    /// Convert a char offset within a line to a byte offset within that same line's
+    /// string — floem's `cursor_point`/layout APIs index by byte, not char, so the
+    /// render pass funnels through here.
     pub fn char_to_byte_in_line(&self, line_offset: usize, line: RopeSlice) -> usize {
         line.char_to_byte(line_offset)
         // line.char_indices()
@@ -50,9 +62,10 @@ impl Document {
         //     .unwrap_or(line.len())
     }
 
-    // Read the first chunk of the file, look for the BOM (Byte Order Mark)
-    // To figure out what the encoding is eg. UTF-8
-    // Returns everthing need to decode the chunk
+    /// Read the first chunk and settle on an encoding, in priority order: caller
+    /// override, then a BOM (Byte Order Mark), then a `chardetng` guess. Returns the
+    /// encoding, whether a BOM was present, a fresh decoder, and the bytes read — the
+    /// inputs `from_reader` needs to decode the rest of the stream.
     fn read_and_detect_encoding<R: Read + ?Sized>(
         reader: &mut R,
         encoding: Option<&'static Encoding>,
@@ -72,6 +85,11 @@ impl Document {
         Ok((encoding, has_bom, encoding.new_decoder(), bytes_read))
     }
 
+    /// Stream-decode a reader into a `Rope`. Two nested loops: the inner one drains a
+    /// read buffer through the decoder (flushing to the `RopeBuilder` on `OutputFull`),
+    /// the outer one pulls the next disk chunk until EOF. Decoding in fixed buffers
+    /// keeps memory flat regardless of file size. Returns the rope + detected encoding
+    /// + BOM flag.
     pub fn from_reader<R: Read + ?Sized>(
         reader: &mut R,
         encoding: Option<&'static Encoding>,
@@ -119,6 +137,9 @@ impl Document {
         Ok((builder.finish(), encoding, has_bom))
     }
 
+    /// Open a file into a `Document`, or start a fresh buffer if it doesn't exist yet
+    /// (so `mist newfile.txt` works). Guards against opening a non-regular file (dir,
+    /// device, etc.). The new-buffer case seeds a single `\n` so there's always a line.
     pub fn open(path: &Path, encoding: Option<&'static Encoding>) -> Result<Self> {
         if path.metadata().is_ok_and(|m| !m.is_file()) {
             return Err(anyhow!("Target is not a file"));

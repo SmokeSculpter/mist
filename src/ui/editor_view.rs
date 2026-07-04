@@ -2,7 +2,9 @@ use floem::prelude::*;
 
 use crate::editor::Editor;
 use crate::keymap::handle_key;
-use crate::ui::render::{FontConfig, paint_cursor, paint_text, plan_screen_lines};
+use crate::ui::render::{
+    FontConfig, paint_cursor, paint_selections, paint_text, plan_screen_lines,
+};
 
 pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     let font = FontConfig::default();
@@ -10,7 +12,7 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     let lines = canvas(move |cx, size| {
         editor.with(|ed| {
             let screen = plan_screen_lines(ed, size, &font);
-            // selection bg -> cursor block -> text (draw order matters)
+            paint_selections(cx, &screen);
             paint_cursor(cx, &screen);
             paint_text(cx, &screen);
         })

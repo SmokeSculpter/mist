@@ -1,3 +1,8 @@
+//! Cursor motions: `Range -> Range` functions run over the selection via
+//! `Selection::transform`. Two families: character/line motions (`move_horizontally`,
+//! `move_vertically`) and word motions (`w/b/e` + long-word `W/B/E`). Ported from
+//! Helix; positions are char indices, steps are graphemes.
+
 use crate::{
     chars::{CharCategory, CharHelpers, categorize_char, char_is_line_ending},
     grapheme::{
@@ -8,18 +13,25 @@ use crate::{
 };
 use ropey::RopeSlice;
 
+/// Which way a motion travels. `Copy` so a `transform` closure can reuse it per range.
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum Direction {
     Forward,
     Backward,
 }
 
+/// Whether a motion collapses the selection to a cursor (`Move`, Normal mode) or
+/// keeps the anchor and drags the head (`Extend`, Select mode). `Copy` for the same
+/// reason as `Direction`.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Movement {
     Move,
     Extend,
 }
 
+/// The boundary a word motion is looking for. `Long` variants treat punctuation as
+/// part of a word (W/B/E); the plain variants stop at punctuation (w/b/e). The
+/// `Prev*End` variants are unused so far — Helix defines them but doesn't bind them.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum WordMotionTarget {
     NextWordStart,
@@ -32,6 +44,10 @@ pub enum WordMotionTarget {
     PrevLongWordEnd,
 }
 
+/// Shared engine for every word motion: seed a starting range at the current cursor
+/// (oriented for the motion direction), then step to the `target` boundary `count`
+/// times via `range_to_target`. Returns the covering `anchor..head` range. Early-outs
+/// when already at the start/end of the buffer.
 fn word_move(slice: RopeSlice, range: Range, count: usize, target: WordMotionTarget) -> Range {
     let is_prev = matches!(
         target,
@@ -103,6 +119,10 @@ pub fn move_prev_long_word_end(slice: RopeSlice, range: Range, count: usize) -> 
     word_move(slice, range, count, WordMotionTarget::PrevLongWordEnd)
 }
 
+/// Given the two chars straddling a position, has the scan reached `target`? Each
+/// target defines a boundary condition (category change) plus a whitespace rule so a
+/// motion lands on the right side of the gap (start-of-word vs end-of-word). Called
+/// per char by `CharHelpers::range_to_target`.
 pub fn reached_target(target: WordMotionTarget, prev_ch: char, next_ch: char) -> bool {
     match target {
         WordMotionTarget::NextWordStart | WordMotionTarget::PrevWordEnd => {
@@ -137,6 +157,9 @@ fn is_long_word_boundary(a: char, b: char) -> bool {
     }
 }
 
+/// Move the cursor `count` graphemes left/right, crossing line boundaries. `behavior`
+/// picks collapse-to-point vs extend-selection; the grapheme stepping and anchor
+/// handling live in `put_cursor`.
 pub fn move_horizontally(
     slice: RopeSlice,
     range: Range,
@@ -153,6 +176,11 @@ pub fn move_horizontally(
     range.put_cursor(slice, new_pos, behavior == Movement::Extend)
 }
 
+/// Move the cursor `count` lines up/down, preserving the target column via `goal_col`
+/// (the "sticky column": passing through a short line clamps the visual position but
+/// the goal is carried forward, so the next move restores the original column). Column
+/// here is char-offset within the line — correct for editing; visual width (tabs/CJK)
+/// is a deferred refinement.
 pub fn move_vertically(
     slice: RopeSlice,
     range: Range,
