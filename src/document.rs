@@ -42,7 +42,7 @@ impl Document {
         self.rope.line_to_char(char_idx)
     }
 
-    pub fn char_to_byte_in_line(&self, line_offset: usize, line: &RopeSlice) -> usize {
+    pub fn char_to_byte_in_line(&self, line_offset: usize, line: RopeSlice) -> usize {
         line.char_to_byte(line_offset)
         // line.char_indices()
         //     .nth(line_offset)

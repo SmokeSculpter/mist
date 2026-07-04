@@ -1,3 +1,9 @@
+use crate::movement::{WordMotionTarget, reached_target};
+use ropey::iter::Chars;
+
+use crate::line_ending::LineEnding;
+use crate::selection::Range;
+
 #[derive(Eq, PartialEq, Debug)]
 pub enum CharCategory {
     WhiteSpace,
@@ -23,13 +29,135 @@ pub fn categorize_char(ch: char) -> CharCategory {
 }
 
 pub fn char_is_line_ending(ch: char) -> bool {
-    true
+    LineEnding::from_char(ch).is_some()
 }
 
-pub fn char_is_word(ch: char) -> bool {
-    true
-}
-
+#[inline]
 pub fn char_is_punctuation(ch: char) -> bool {
-    true
+    use unicode_general_category::{GeneralCategory, get_general_category};
+
+    matches!(
+        get_general_category(ch),
+        GeneralCategory::OtherPunctuation
+            | GeneralCategory::OpenPunctuation
+            | GeneralCategory::ClosePunctuation
+            | GeneralCategory::InitialPunctuation
+            | GeneralCategory::FinalPunctuation
+            | GeneralCategory::ConnectorPunctuation
+            | GeneralCategory::DashPunctuation
+            | GeneralCategory::MathSymbol
+            | GeneralCategory::CurrencySymbol
+            | GeneralCategory::ModifierSymbol
+    )
+}
+
+#[inline]
+pub fn char_is_word(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '_'
+}
+
+pub trait CharHelpers {
+    fn range_to_target(&mut self, target: WordMotionTarget, origin: Range) -> Range;
+}
+
+impl CharHelpers for Chars<'_> {
+    fn range_to_target(&mut self, target: WordMotionTarget, origin: Range) -> Range {
+        let is_prev = matches!(
+            target,
+            WordMotionTarget::PrevWordStart
+                | WordMotionTarget::PrevLongWordStart
+                | WordMotionTarget::PrevWordEnd
+                | WordMotionTarget::PrevLongWordEnd
+        );
+
+        // Reverse the iterator if needed for the motion direction.
+        if is_prev {
+            self.reverse();
+        }
+
+        // Function to advance index in the appropriate motion direction.
+        let advance: &dyn Fn(&mut usize) = if is_prev {
+            &|idx| *idx = idx.saturating_sub(1)
+        } else {
+            &|idx| *idx += 1
+        };
+
+        // Initialize state variables.
+        let mut anchor = origin.anchor;
+        let mut head = origin.head;
+        let mut prev_ch = {
+            let ch = self.prev();
+            if ch.is_some() {
+                self.next();
+            }
+            ch
+        };
+
+        // Skip any initial newline characters.
+        while let Some(ch) = self.next() {
+            if char_is_line_ending(ch) {
+                prev_ch = Some(ch);
+                advance(&mut head);
+            } else {
+                self.prev();
+                break;
+            }
+        }
+        if prev_ch.map(char_is_line_ending).unwrap_or(false) {
+            anchor = head;
+        }
+
+        // Find our target position(s).
+        let head_start = head;
+        #[allow(clippy::while_let_on_iterator)] // Clippy's suggestion to fix doesn't work here.
+        while let Some(next_ch) = self.next() {
+            if prev_ch.is_none() || reached_target(target, prev_ch.unwrap(), next_ch) {
+                if head == head_start {
+                    anchor = head;
+                } else {
+                    break;
+                }
+            }
+            prev_ch = Some(next_ch);
+            advance(&mut head);
+        }
+
+        // Un-reverse the iterator if needed.
+        if is_prev {
+            self.reverse();
+        }
+
+        Range::new(anchor, head)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn categorize() {
+        assert_eq!(categorize_char('a'), CharCategory::Word);
+        assert_eq!(categorize_char('_'), CharCategory::Word);
+        assert_eq!(categorize_char('7'), CharCategory::Word);
+        assert_eq!(categorize_char(' '), CharCategory::WhiteSpace);
+        assert_eq!(categorize_char('\t'), CharCategory::WhiteSpace);
+        assert_eq!(categorize_char('\n'), CharCategory::Eol);
+        assert_eq!(categorize_char('.'), CharCategory::Punctuation);
+        assert_eq!(categorize_char(','), CharCategory::Punctuation);
+    }
+    #[test]
+    fn word_classification() {
+        assert!(char_is_word('z'));
+        assert!(char_is_word('_'));
+        assert!(!char_is_word('.'));
+        assert!(!char_is_word(' '));
+    }
+    #[test]
+    fn punctuation_classification() {
+        assert!(char_is_punctuation('.'));
+        assert!(char_is_punctuation('+')); // MathSymbol in your impl
+        assert!(!char_is_punctuation('a'));
+        assert!(!char_is_punctuation(' '));
+    }
 }

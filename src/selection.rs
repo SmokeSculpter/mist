@@ -149,20 +149,20 @@ impl Range {
     }
 
     #[must_use]
-    pub fn grapheme_aligned(&self, slice: &RopeSlice) -> Self {
+    pub fn grapheme_aligned(&self, slice: RopeSlice) -> Self {
         use std::cmp::Ordering;
         let (new_anchor, new_head) = match self.anchor.cmp(&self.head) {
             Ordering::Equal => {
-                let pos = ensure_grapheme_boundary_prev(&slice, self.anchor);
+                let pos = ensure_grapheme_boundary_prev(slice, self.anchor);
                 (pos, pos)
             }
             Ordering::Less => (
-                ensure_grapheme_boundary_prev(&slice, self.anchor),
-                ensure_grapheme_boundary_next(&slice, self.head),
+                ensure_grapheme_boundary_prev(slice, self.anchor),
+                ensure_grapheme_boundary_next(slice, self.head),
             ),
             Ordering::Greater => (
-                ensure_grapheme_boundary_next(&slice, self.anchor),
-                ensure_grapheme_boundary_prev(&slice, self.head),
+                ensure_grapheme_boundary_next(slice, self.anchor),
+                ensure_grapheme_boundary_prev(slice, self.head),
             ),
         };
 
@@ -179,7 +179,7 @@ impl Range {
 
     #[inline]
     #[must_use]
-    pub fn min_width_1(&self, text: &RopeSlice) -> Self {
+    pub fn min_width_1(&self, text: RopeSlice) -> Self {
         if self.head == self.anchor {
             Self {
                 anchor: self.anchor,
@@ -193,7 +193,7 @@ impl Range {
 
     #[inline]
     #[must_use]
-    pub fn cursor(&self, text: &RopeSlice) -> usize {
+    pub fn cursor(&self, text: RopeSlice) -> usize {
         if self.head > self.anchor {
             prev_grapheme_boundary(text, self.head)
         } else {
@@ -203,7 +203,7 @@ impl Range {
 
     #[inline]
     #[must_use]
-    pub fn put_cursor(self, text: &RopeSlice, char_idx: usize, extend: bool) -> Range {
+    pub fn put_cursor(self, text: RopeSlice, char_idx: usize, extend: bool) -> Range {
         if extend {
             let anchor = if self.head >= self.anchor && char_idx < self.anchor {
                 next_grapheme_boundary(text, self.anchor)
@@ -330,10 +330,10 @@ impl Selection {
     }
 
     pub fn ensure_invariants(self, text: RopeSlice) -> Self {
-        self.transform(|r| r.min_width_1(&text).grapheme_aligned(&text))
+        self.transform(|r| r.min_width_1(text).grapheme_aligned(text))
     }
 
-    pub fn cursors(self, text: &RopeSlice) -> Self {
+    pub fn cursors(self, text: RopeSlice) -> Self {
         self.transform(|r| Range::point(r.cursor(text)))
     }
 
@@ -427,16 +427,16 @@ mod tests {
     fn cursor_is_block_left_edge() {
         let rope = Rope::from_str("hello world");
         let s = rope.slice(..);
-        assert_eq!(Range::point(3).cursor(&s), 3); // point: head itself
-        assert_eq!(Range::new(2, 6).cursor(&s), 5); // forward: one grapheme back from head
-        assert_eq!(Range::new(6, 2).cursor(&s), 2); // backward: head itself
+        assert_eq!(Range::point(3).cursor(s), 3); // point: head itself
+        assert_eq!(Range::new(2, 6).cursor(s), 5); // forward: one grapheme back from head
+        assert_eq!(Range::new(6, 2).cursor(s), 2); // backward: head itself
     }
 
     #[test]
     fn put_cursor_move_collapses() {
         let rope = Rope::from_str("hello world");
         let s = rope.slice(..);
-        assert_eq!(Range::new(0, 5).put_cursor(&s, 8, false), Range::point(8));
+        assert_eq!(Range::new(0, 5).put_cursor(s, 8, false), Range::point(8));
     }
 
     #[test]
@@ -444,10 +444,10 @@ mod tests {
         let rope = Rope::from_str("hello world");
         let s = rope.slice(..);
         // extend a cursor at 2 forward to 5 -> covers char 5 (head = next boundary)
-        let f = Range::point(2).put_cursor(&s, 5, true);
+        let f = Range::point(2).put_cursor(s, 5, true);
         assert_eq!((f.anchor, f.head), (2, 6));
         // extend a cursor at 5 backward to 2 -> anchor jumps forward one, head lands on 2
-        let b = Range::point(5).put_cursor(&s, 2, true);
+        let b = Range::point(5).put_cursor(s, 2, true);
         assert_eq!((b.anchor, b.head), (6, 2));
     }
 
@@ -455,10 +455,10 @@ mod tests {
     fn min_width_1() {
         let rope = Rope::from_str("hello");
         let s = rope.slice(..);
-        let w = Range::point(3).min_width_1(&s);
+        let w = Range::point(3).min_width_1(s);
         assert_eq!((w.anchor, w.head), (3, 4)); // point widened
         let nz = Range::new(1, 3);
-        assert_eq!(nz.min_width_1(&s), nz); // non-empty untouched
+        assert_eq!(nz.min_width_1(s), nz); // non-empty untouched
     }
 
     #[test]
@@ -466,7 +466,7 @@ mod tests {
         // "e" + combining acute = one grapheme (2 chars); index 1 is mid-cluster
         let rope = Rope::from_str("e\u{0301}x");
         let s = rope.slice(..);
-        let a = Range::point(1).grapheme_aligned(&s);
+        let a = Range::point(1).grapheme_aligned(s);
         assert_eq!((a.anchor, a.head), (0, 0));
     }
 

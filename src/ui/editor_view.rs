@@ -43,19 +43,19 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
 
                 while range_idx < editor_state.selection.len() {
                     let r = editor_state.selection.ranges()[range_idx];
-                    let cur = r.cursor(&rope);
+                    let cur = r.cursor(rope);
 
                     if editor_state.document.line_idx(cur) != line {
                         break;
                     };
 
                     let col = cur - line_start;
-                    let byte = editor_state.document.char_to_byte_in_line(col, &line_slice);
-                    let next = next_grapheme_boundary(&rope, cur);
+                    let byte = editor_state.document.char_to_byte_in_line(col, line_slice);
+                    let next = next_grapheme_boundary(rope, cur);
                     let next_col = (next - line_start).min(line_char_len);
                     let next_byte = editor_state
                         .document
-                        .char_to_byte_in_line(next_col, &line_slice);
+                        .char_to_byte_in_line(next_col, line_slice);
 
                     if editor_state.mode == Mode::Normal {
                         if let Some(ch) = text[byte..].chars().next() {
