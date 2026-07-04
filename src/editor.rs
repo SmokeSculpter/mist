@@ -1,4 +1,5 @@
 use crate::document::Document;
+use crate::mode::Mode;
 use crate::movement::{Direction, Movement, move_horizontally, move_vertically};
 use crate::selection::Selection;
 use anyhow::Result;
@@ -7,6 +8,7 @@ use std::path::Path;
 pub struct Editor {
     pub document: Document,
     pub selection: Selection,
+    pub mode: Mode,
 }
 
 impl Editor {
@@ -17,7 +19,20 @@ impl Editor {
         Ok(Self {
             document: document,
             selection,
+            mode: Mode::Normal,
         })
+    }
+
+    pub fn enter_insert(&mut self) {
+        self.mode = Mode::Insert;
+    }
+
+    pub fn enter_normal(&mut self) {
+        self.mode = Mode::Normal;
+    }
+
+    pub fn enter_select(&mut self) {
+        self.mode = Mode::Select;
     }
 
     pub fn move_h(&mut self, dir: Direction, count: usize) {

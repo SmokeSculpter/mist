@@ -1,6 +1,7 @@
 mod document;
 mod editor;
 mod grapheme;
+mod keymap;
 mod mode;
 mod movement;
 mod selection;

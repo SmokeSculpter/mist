@@ -5,6 +5,8 @@ use floem::{prelude::*, text::TextLayout};
 
 use crate::editor::Editor;
 use crate::grapheme::next_grapheme_boundary;
+use crate::keymap::handle_key;
+use crate::mode::Mode;
 use crate::movement::Direction;
 
 pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
@@ -55,15 +57,17 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
                         .document
                         .char_to_byte_in_line(next_col, &line_slice);
 
-                    if let Some(ch) = text[byte..].chars().next() {
-                        let end = byte + ch.len_utf8();
-                        attrs_list.add_span(
-                            byte..end,
-                            Attrs::new()
-                                .family(&[FamilyOwned::Name("JetBrains Mono".to_string())])
-                                .font_size(font_size)
-                                .color(AlphaColor::from_rgb8(30, 30, 30)),
-                        );
+                    if editor_state.mode == Mode::Normal {
+                        if let Some(ch) = text[byte..].chars().next() {
+                            let end = byte + ch.len_utf8();
+                            attrs_list.add_span(
+                                byte..end,
+                                Attrs::new()
+                                    .family(&[FamilyOwned::Name("JetBrains Mono".to_string())])
+                                    .font_size(font_size)
+                                    .color(AlphaColor::from_rgb8(30, 30, 30)),
+                            );
+                        }
                     }
                     carets.push((byte, next_byte));
                     range_idx += 1;
@@ -74,13 +78,19 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
                 for (byte, next_byte) in carets {
                     let x0 = drawn_line.cursor_point(byte, Affinity::Downstream).x;
                     let x1 = drawn_line.cursor_point(next_byte, Affinity::Downstream).x;
-                    let caret_w = if x1 > x0 {
+                    let true_line_height = drawn_line.size().height;
+                    let caret_w = if editor_state.mode == Mode::Insert {
+                        2.0
+                    } else if x1 > x0 {
                         x1 - x0
                     } else {
                         font_size as f64 * 0.6
                     };
                     cx.fill(
-                        &Rect::from_origin_size((x0, y_offset), (caret_w, line_height)),
+                        &Rect::from_origin_size(
+                            (x0, y_offset - true_line_height * 0.25),
+                            (caret_w, line_height),
+                        ),
                         Color::from_rgb8(255, 255, 255),
                         0.0,
                     );
@@ -96,16 +106,9 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
             .width_full()
             .height_full()
     })
-    .on_event_stop(
-        el::KeyDown,
-        move |_cx, KeyboardEvent { key, .. }| match key {
-            Key::Character(ch) if ch == "h" => editor.update(|e| e.move_h(Direction::Backward, 1)),
-            Key::Character(ch) if ch == "l" => editor.update(|e| e.move_h(Direction::Forward, 1)),
-            Key::Character(ch) if ch == "j" => editor.update(|e| e.move_v(Direction::Forward, 1)),
-            Key::Character(ch) if ch == "k" => editor.update(|e| e.move_v(Direction::Backward, 1)),
-            _ => {}
-        },
-    )
+    .on_event_stop(el::KeyDown, move |_cx, KeyboardEvent { key, .. }| {
+        editor.update(|e| handle_key(e, key));
+    })
     .request_focus(|| {});
 
     lines

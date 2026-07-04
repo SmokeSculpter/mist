@@ -1,5 +1,6 @@
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
-    NORMAL,
-    INSERT,
-    VISUAL,
+    Normal,
+    Insert,
+    Select,
 }
