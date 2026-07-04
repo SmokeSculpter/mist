@@ -25,6 +25,23 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
         // Return if key is any non char key such as ESC
         return;
     }
+    // Pending go to gate -- toggled below
+    if editor.pending_goto {
+        editor.pending_goto = false;
+        let extend = editor.mode == Mode::Select;
+        if let Key::Character(ch) = key {
+            match ch.as_str() {
+                "g" => editor.goto_file_start(extend),
+                "e" => editor.goto_file_end(extend),
+                "h" => editor.goto_line_start(extend),
+                "l" => editor.goto_line_end(extend),
+                _ => {}
+            }
+        }
+        // Consume the key whether or not it was a valid goto target (like pending_find)
+        return;
+    }
+    // Count guard
     if editor.mode != Mode::Insert {
         if let Key::Character(ch) = key {
             if let Ok(n) = ch.parse::<usize>() {
@@ -88,6 +105,9 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
                     extend: false,
                 })
             }
+            Key::Character(ch) if ch == "g" => editor.pending_goto = true,
+            Key::Named(NamedKey::Home) => editor.goto_line_start(false),
+            Key::Named(NamedKey::End) => editor.goto_line_end(false),
             _ => {}
         },
         Mode::Insert => match key {
@@ -148,6 +168,9 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
                     extend: true,
                 })
             }
+            Key::Character(ch) if ch == "g" => editor.pending_goto = true,
+            Key::Named(NamedKey::Home) => editor.goto_line_start(true),
+            Key::Named(NamedKey::End) => editor.goto_line_end(true),
             _ => {}
         },
     }
@@ -291,5 +314,15 @@ mod tests {
         let mut e = create_editor();
         handle_key(&mut e, &Key::Character("0".into()));
         assert_eq!(e.count, None); // fell through to command dispatch (0 unbound -> no-op)
+    }
+
+    #[test]
+    fn gg_goes_to_file_start() {
+        let mut e = create_editor();
+        handle_key(&mut e, &Key::Character("j".into())); // move off 0
+        handle_key(&mut e, &Key::Character("g".into()));
+        handle_key(&mut e, &Key::Character("g".into()));
+        assert_eq!(e.selection.primary().cursor(e.document.rope().slice(..)), 0);
+        assert!(!e.pending_goto);
     }
 }

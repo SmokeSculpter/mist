@@ -197,7 +197,7 @@ pub fn move_vertically(
 }
 
 // Helpers
-fn line_char_len(slice: RopeSlice, line_idx: usize) -> usize {
+pub fn line_char_len(slice: RopeSlice, line_idx: usize) -> usize {
     let line = slice.line(line_idx);
     let char_len = line.len_chars();
 

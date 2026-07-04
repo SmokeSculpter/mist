@@ -4,12 +4,12 @@
 //! transforms each range, and stores the result. Transactions/history land here later.
 
 use crate::document::Document;
-use crate::grapheme::next_grapheme_boundary;
+use crate::grapheme::{next_grapheme_boundary, prev_grapheme_boundary};
 use crate::mode::Mode;
 use crate::movement::{
-    Direction, Movement, move_horizontally, move_next_long_word_end, move_next_long_word_start,
-    move_next_word_end, move_next_word_start, move_prev_long_word_start, move_prev_word_start,
-    move_vertically,
+    Direction, Movement, line_char_len, move_horizontally, move_next_long_word_end,
+    move_next_long_word_start, move_next_word_end, move_next_word_start, move_prev_long_word_start,
+    move_prev_word_start, move_vertically,
 };
 use crate::search::find_nth_char;
 use crate::selection::{Range, Selection};
@@ -33,6 +33,7 @@ pub struct Editor {
     pub mode: Mode,
     pub count: Option<usize>,
     pub pending_find: Option<PendingFind>,
+    pub pending_goto: bool,
 }
 
 impl Editor {
@@ -46,6 +47,46 @@ impl Editor {
             mode: Mode::Normal,
             count: None,
             pending_find: None,
+            pending_goto: false,
+        })
+    }
+
+    fn goto(&mut self, pos: usize, extend: bool) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self
+            .selection
+            .clone()
+            .transform(|r| r.put_cursor(rope, pos, extend))
+    }
+
+    pub fn goto_file_start(&mut self, extend: bool) {
+        self.goto(0, extend);
+    }
+
+    pub fn goto_file_end(&mut self, extend: bool) {
+        let rope = self.document.rope().slice(..);
+        let pos = prev_grapheme_boundary(rope, rope.len_chars());
+        self.goto(pos, extend);
+    }
+
+    pub fn goto_line_start(&mut self, extend: bool) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self.selection.clone().transform(|r| {
+            let line = rope.char_to_line(r.cursor(rope));
+            r.put_cursor(rope, rope.line_to_char(line), extend)
+        });
+    }
+
+    pub fn goto_line_end(&mut self, extend: bool) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self.selection.clone().transform(|r| {
+            let line = rope.char_to_line(r.cursor(rope));
+            let start = rope.line_to_char(line);
+            let end = start + line_char_len(rope, line);
+            // Block caret sits on last char, not past line's last grapheme;
+            // clamp to 'start' so an empty line stays put
+            let pos = prev_grapheme_boundary(rope, end).max(start);
+            r.put_cursor(rope, pos, extend)
         })
     }
 
