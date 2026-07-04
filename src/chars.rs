@@ -79,10 +79,7 @@ impl CharHelpers for Chars<'_> {
     fn range_to_target(&mut self, target: WordMotionTarget, origin: Range) -> Range {
         let is_prev = matches!(
             target,
-            WordMotionTarget::PrevWordStart
-                | WordMotionTarget::PrevLongWordStart
-                | WordMotionTarget::PrevWordEnd
-                | WordMotionTarget::PrevLongWordEnd
+            WordMotionTarget::PrevWordStart | WordMotionTarget::PrevLongWordStart
         );
 
         // Reverse the iterator if needed for the motion direction.

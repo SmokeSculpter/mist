@@ -37,11 +37,9 @@ pub enum WordMotionTarget {
     NextWordStart,
     NextWordEnd,
     PrevWordStart,
-    PrevWordEnd,
     NextLongWordStart,
     NextLongWordEnd,
     PrevLongWordStart,
-    PrevLongWordEnd,
 }
 
 /// Shared engine for every word motion: seed a starting range at the current cursor
@@ -51,10 +49,7 @@ pub enum WordMotionTarget {
 fn word_move(slice: RopeSlice, range: Range, count: usize, target: WordMotionTarget) -> Range {
     let is_prev = matches!(
         target,
-        WordMotionTarget::PrevWordStart
-            | WordMotionTarget::PrevLongWordStart
-            | WordMotionTarget::PrevWordEnd
-            | WordMotionTarget::PrevLongWordEnd
+        WordMotionTarget::PrevWordStart | WordMotionTarget::PrevLongWordStart
     );
 
     if (is_prev && range.head == 0) || (!is_prev && range.head == slice.len_chars()) {
@@ -99,10 +94,6 @@ pub fn move_prev_word_start(slice: RopeSlice, range: Range, count: usize) -> Ran
     word_move(slice, range, count, WordMotionTarget::PrevWordStart)
 }
 
-pub fn move_prev_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevWordEnd)
-}
-
 pub fn move_next_long_word_start(slice: RopeSlice, range: Range, count: usize) -> Range {
     word_move(slice, range, count, WordMotionTarget::NextLongWordStart)
 }
@@ -115,17 +106,13 @@ pub fn move_prev_long_word_start(slice: RopeSlice, range: Range, count: usize) -
     word_move(slice, range, count, WordMotionTarget::PrevLongWordStart)
 }
 
-pub fn move_prev_long_word_end(slice: RopeSlice, range: Range, count: usize) -> Range {
-    word_move(slice, range, count, WordMotionTarget::PrevLongWordEnd)
-}
-
 /// Given the two chars straddling a position, has the scan reached `target`? Each
 /// target defines a boundary condition (category change) plus a whitespace rule so a
 /// motion lands on the right side of the gap (start-of-word vs end-of-word). Called
 /// per char by `CharHelpers::range_to_target`.
 pub fn reached_target(target: WordMotionTarget, prev_ch: char, next_ch: char) -> bool {
     match target {
-        WordMotionTarget::NextWordStart | WordMotionTarget::PrevWordEnd => {
+        WordMotionTarget::NextWordStart => {
             is_word_boundary(prev_ch, next_ch)
                 && (char_is_line_ending(next_ch) || !next_ch.is_whitespace())
         }
@@ -133,7 +120,7 @@ pub fn reached_target(target: WordMotionTarget, prev_ch: char, next_ch: char) ->
             is_word_boundary(prev_ch, next_ch)
                 && (!prev_ch.is_whitespace() || char_is_line_ending(next_ch))
         }
-        WordMotionTarget::NextLongWordStart | WordMotionTarget::PrevLongWordEnd => {
+        WordMotionTarget::NextLongWordStart => {
             is_long_word_boundary(prev_ch, next_ch)
                 && (char_is_line_ending(next_ch) || !next_ch.is_whitespace())
         }

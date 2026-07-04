@@ -8,8 +8,8 @@ use crate::grapheme::next_grapheme_boundary;
 use crate::mode::Mode;
 use crate::movement::{
     Direction, Movement, move_horizontally, move_next_long_word_end, move_next_long_word_start,
-    move_next_word_end, move_next_word_start, move_prev_long_word_end, move_prev_long_word_start,
-    move_prev_word_end, move_prev_word_start, move_vertically,
+    move_next_word_end, move_next_word_start, move_prev_long_word_start, move_prev_word_start,
+    move_vertically,
 };
 use crate::search::find_nth_char;
 use crate::selection::{Range, Selection};
@@ -166,30 +166,6 @@ impl Editor {
             .selection
             .clone()
             .transform(|r| move_next_long_word_start(rope, r, n));
-    }
-
-    pub fn extend_prev_word_end(&mut self, n: usize) {
-        self.extend_word(move_prev_word_end, n);
-    }
-
-    pub fn move_prev_word_end(&mut self) {
-        let rope = self.document.rope().slice(..);
-        self.selection = self
-            .selection
-            .clone()
-            .transform(|r| move_prev_word_end(rope, r, 1));
-    }
-
-    pub fn extend_prev_long_word_end(&mut self, n: usize) {
-        self.extend_word(move_prev_long_word_end, n);
-    }
-
-    pub fn move_prev_long_word_end(&mut self) {
-        let rope = self.document.rope().slice(..);
-        self.selection = self
-            .selection
-            .clone()
-            .transform(|r| move_prev_long_word_end(rope, r, 1));
     }
 
     pub fn extend_prev_word_start(&mut self, n: usize) {
