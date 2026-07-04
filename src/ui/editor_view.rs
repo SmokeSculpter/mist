@@ -3,16 +3,14 @@ use floem::peniko::color::AlphaColor;
 use floem::text::{Affinity, Attrs, AttrsList, FamilyOwned, FontStyle};
 use floem::{prelude::*, text::TextLayout};
 
-use crate::editor::EditorState;
+use crate::editor::Editor;
 use crate::grapheme::next_grapheme_boundary;
 
-pub fn editor_view(editor: RwSignal<EditorState>) -> impl View {
+pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     let lines = canvas(move |cx, size| {
         editor.with(|editor_state| {
-            let head = editor_state.range.head();
-            let line_idx = editor_state.document.line_idx(head);
-            let line_start = editor_state.document.line_start(line_idx);
-            let cursor_col = head - line_start;
+            let rope = editor_state.document.rope().slice(..);
+            let mut range_idx = 0usize;
 
             let font_size = 16.0;
             let line_height = 24.0;
@@ -32,15 +30,25 @@ pub fn editor_view(editor: RwSignal<EditorState>) -> impl View {
                     .color(AlphaColor::from_rgb8(220, 220, 220))
                     .font_size(font_size);
                 let mut attrs_list = AttrsList::new(attrs);
+                let line_start = editor_state.document.line_start(line);
+                let line_char_len = text.chars().count();
+                let mut carets = Vec::new();
 
-                let caret_bytes = if line == line_idx {
-                    let byte = editor_state
-                        .document
-                        .char_to_byte_in_line(cursor_col, &line_slice);
-                    let next_char = next_grapheme_boundary(&line_slice, cursor_col);
+                while range_idx < editor_state.selection.len() {
+                    let r = editor_state.selection.ranges()[range_idx];
+                    let cur = r.cursor(&rope);
+
+                    if editor_state.document.line_idx(cur) != line {
+                        break;
+                    };
+
+                    let col = cur - line_start;
+                    let byte = editor_state.document.char_to_byte_in_line(col, &line_slice);
+                    let next = next_grapheme_boundary(&rope, cur);
+                    let next_col = (next - line_start).min(line_char_len);
                     let next_byte = editor_state
                         .document
-                        .char_to_byte_in_line(next_char, &line_slice);
+                        .char_to_byte_in_line(next_col, &line_slice);
 
                     if let Some(ch) = text[byte..].chars().next() {
                         let end = byte + ch.len_utf8();
@@ -52,26 +60,25 @@ pub fn editor_view(editor: RwSignal<EditorState>) -> impl View {
                                 .color(AlphaColor::from_rgb8(30, 30, 30)),
                         );
                     }
-                    Some((byte, next_byte))
-                } else {
-                    None
-                };
+                    carets.push((byte, next_byte));
+                    range_idx += 1;
+                }
 
                 let drawn_line = TextLayout::new_with_text(text, attrs_list, None);
                 let y_offset = line as f64 * line_height;
-
-                if let Some((byte, next_byte)) = caret_bytes {
+                for (byte, next_byte) in carets {
                     let x0 = drawn_line.cursor_point(byte, Affinity::Downstream).x;
                     let x1 = drawn_line.cursor_point(next_byte, Affinity::Downstream).x;
-
                     let caret_w = if x1 > x0 {
                         x1 - x0
                     } else {
                         font_size as f64 * 0.6
                     };
-
-                    let caret = Rect::from_origin_size((x0, y_offset), (caret_w, line_height));
-                    cx.fill(&caret, Color::from_rgb8(255, 255, 255), 0.0);
+                    cx.fill(
+                        &Rect::from_origin_size((x0, y_offset), (caret_w, line_height)),
+                        Color::from_rgb8(255, 255, 255),
+                        0.0,
+                    );
                 }
 
                 drawn_line.draw(cx, Point::new(0.0, y_offset));

@@ -8,12 +8,12 @@ mod ui;
 use floem::prelude::*;
 use std::path::Path;
 
-use editor::EditorState;
+use editor::Editor;
 
 fn main() -> anyhow::Result<()> {
     floem::launch(|| {
         let path = std::env::args().nth(1).expect("Usage: mist <file>");
-        let editor = RwSignal::new(EditorState::new(Path::new(&path)).expect("Failed to open"));
+        let editor = RwSignal::new(Editor::new(Path::new(&path)).expect("Failed to open"));
         ui::editor_view::editor_view(editor)
     });
 

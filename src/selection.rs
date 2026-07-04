@@ -11,9 +11,9 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range {
-    anchor: usize,
-    head: usize,
-    goal_col: Option<usize>,
+    pub anchor: usize,
+    pub head: usize,
+    pub goal_col: Option<usize>,
 }
 
 impl Range {
@@ -56,10 +56,10 @@ impl Range {
     #[inline]
     #[must_use]
     pub fn direction(&self) -> Direction {
-        if self.anchor < self.head {
-            Direction::Forward
-        } else {
+        if self.head < self.anchor {
             Direction::Backward
+        } else {
+            Direction::Forward
         }
     }
 
@@ -99,7 +99,7 @@ impl Range {
     }
 
     #[must_use]
-    pub fn extends(&self, from: usize, to: usize) -> Self {
+    pub fn extend(&self, from: usize, to: usize) -> Self {
         debug_assert!(from <= to);
         if self.anchor <= self.head {
             Self {
@@ -110,7 +110,7 @@ impl Range {
         } else {
             Self {
                 anchor: self.anchor.max(to),
-                head: self.head.max(from),
+                head: self.head.min(from),
                 goal_col: None,
             }
         }
@@ -139,7 +139,7 @@ impl Range {
     }
 
     #[must_use]
-    pub fn grapheme_aligned(&self, slice: RopeSlice) -> Self {
+    pub fn grapheme_aligned(&self, slice: &RopeSlice) -> Self {
         use std::cmp::Ordering;
         let (new_anchor, new_head) = match self.anchor.cmp(&self.head) {
             Ordering::Equal => {
@@ -159,13 +159,17 @@ impl Range {
         Self {
             anchor: new_anchor,
             head: new_head,
-            goal_col: self.goal_col,
+            goal_col: if new_anchor == self.anchor {
+                self.goal_col
+            } else {
+                None
+            },
         }
     }
 
     #[inline]
     #[must_use]
-    pub fn mid_width_1(&self, text: &RopeSlice) -> Self {
+    pub fn min_width_1(&self, text: &RopeSlice) -> Self {
         if self.head == self.anchor {
             Self {
                 anchor: self.anchor,
@@ -215,4 +219,133 @@ pub struct Selection {
     primary_index: usize,
 }
 
-impl Selection {}
+impl Selection {
+    #[inline]
+    #[must_use]
+    pub fn primary(&self) -> Range {
+        self.ranges[self.primary_index]
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn primary_mut(&mut self) -> &mut Range {
+        &mut self.ranges[self.primary_index]
+    }
+
+    pub fn ranges(&self) -> &[Range] {
+        &self.ranges
+    }
+
+    pub fn primary_index(&self) -> usize {
+        self.primary_index
+    }
+
+    pub fn set_primary_index(&mut self, idx: usize) {
+        assert!(idx < self.ranges.len());
+        self.primary_index = idx;
+    }
+
+    pub fn len(&self) -> usize {
+        self.ranges.len()
+    }
+
+    pub fn single(anchor: usize, head: usize) -> Self {
+        Self {
+            ranges: smallvec![Range::new(anchor, head)],
+            primary_index: 0,
+        }
+    }
+
+    pub fn point(pos: usize) -> Self {
+        Self::single(pos, pos)
+    }
+
+    #[must_use]
+    pub fn new(ranges: SmallVec<[Range; 1]>, primary_idx: usize) -> Self {
+        assert!(!ranges.is_empty());
+        debug_assert!(primary_idx < ranges.len());
+        Self {
+            ranges,
+            primary_index: primary_idx,
+        }
+        .normalize()
+    }
+
+    pub fn into_single(self) -> Self {
+        if self.ranges.len() == 1 {
+            self
+        } else {
+            Self {
+                ranges: smallvec![self.ranges[self.primary_index]],
+                primary_index: 0,
+            }
+        }
+    }
+
+    pub fn push(mut self, range: Range) -> Self {
+        self.ranges.push(range);
+        self.primary_index = self.ranges.len() - 1;
+        self.normalize()
+    }
+
+    pub fn remove(mut self, index: usize) -> Self {
+        assert!(self.ranges.len() > 1, "Can't remove last Range");
+        self.ranges.remove(index);
+        if index < self.primary_index || self.primary_index == self.ranges.len() {
+            self.primary_index -= 1;
+        };
+
+        self
+    }
+
+    pub fn replace(mut self, index: usize, range: Range) -> Self {
+        self.ranges[index] = range;
+        self.normalize()
+    }
+
+    pub fn transform<F: FnMut(Range) -> Range>(mut self, mut f: F) -> Self {
+        for range in self.ranges.iter_mut() {
+            *range = f(*range);
+        }
+        self.normalize()
+    }
+
+    pub fn transform_iter<F, I>(mut self, f: F) -> Self
+    where
+        F: FnMut(Range) -> I,
+        I: Iterator<Item = Range>,
+    {
+        self.ranges = self.ranges.into_iter().flat_map(f).collect();
+        self.normalize()
+    }
+
+    pub fn ensure_invariants(self, text: RopeSlice) -> Self {
+        self.transform(|r| r.min_width_1(&text).grapheme_aligned(&text))
+    }
+
+    pub fn cursors(self, text: &RopeSlice) -> Self {
+        self.transform(|r| Range::point(r.cursor(text)))
+    }
+
+    fn normalize(mut self) -> Self {
+        if self.ranges.len() < 2 {
+            return self;
+        }
+        let mut primary = self.ranges[self.primary_index];
+        self.ranges.sort_unstable_by_key(Range::from);
+        self.ranges.dedup_by(|curr, prev| {
+            if prev.overlaps(curr) {
+                let merged = prev.merge(*curr);
+                if prev == &primary || curr == &primary {
+                    primary = merged;
+                }
+                *prev = merged;
+                true
+            } else {
+                false
+            }
+        });
+        self.primary_index = self.ranges.iter().position(|&r| r == primary).unwrap();
+        self
+    }
+}

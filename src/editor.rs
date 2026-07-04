@@ -1,21 +1,21 @@
 use crate::document::Document;
-use crate::selection::Range;
+use crate::selection::Selection;
 use anyhow::Result;
 use std::path::Path;
 
-pub struct EditorState {
+pub struct Editor {
     pub document: Document,
-    pub range: Range,
+    pub selection: Selection,
 }
 
-impl EditorState {
+impl Editor {
     pub fn new(path: &Path) -> Result<Self> {
-        let range = Range::new();
+        let selection = Selection::point(0);
         let document = Document::open(path, None)?;
 
         Ok(Self {
             document: document,
-            range: range,
+            selection,
         })
     }
 }
