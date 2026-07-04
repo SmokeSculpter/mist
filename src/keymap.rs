@@ -15,24 +15,37 @@ use floem::prelude::{Key, NamedKey};
 /// motions collapse (`Movement::Move`); Select = the same motions extend
 /// (`Movement::Extend` / the `extend_*` word variants); Insert = Esc back to Normal.
 pub fn handle_key(editor: &mut Editor, key: &Key) {
+    if editor.mode != Mode::Insert {
+        if let Key::Character(ch) = key {
+            if let Ok(n) = ch.parse::<usize>() {
+                if editor.count.is_some() || n > 0 {
+                    editor.push_count_digit(n);
+                    return;
+                }
+            }
+        }
+    }
+
+    let n = editor.take_count();
+
     match editor.mode {
         Mode::Normal => match key {
             Key::Character(ch) if ch == "h" => {
-                editor.move_h(Direction::Backward, 1, Movement::Move)
+                editor.move_h(Direction::Backward, n, Movement::Move)
             }
-            Key::Character(ch) if ch == "l" => editor.move_h(Direction::Forward, 1, Movement::Move),
-            Key::Character(ch) if ch == "j" => editor.move_v(Direction::Forward, 1, Movement::Move),
+            Key::Character(ch) if ch == "l" => editor.move_h(Direction::Forward, n, Movement::Move),
+            Key::Character(ch) if ch == "j" => editor.move_v(Direction::Forward, n, Movement::Move),
             Key::Character(ch) if ch == "k" => {
-                editor.move_v(Direction::Backward, 1, Movement::Move)
+                editor.move_v(Direction::Backward, n, Movement::Move)
             }
             Key::Character(ch) if ch == "i" => editor.enter_insert(),
             Key::Character(ch) if ch == "v" => editor.enter_select(),
-            Key::Character(ch) if ch == "w" => editor.move_next_word_start(),
-            Key::Character(ch) if ch == "W" => editor.move_next_long_word_start(),
-            Key::Character(ch) if ch == "e" => editor.move_next_word_end(),
-            Key::Character(ch) if ch == "E" => editor.move_next_long_word_end(),
-            Key::Character(ch) if ch == "b" => editor.move_prev_word_start(),
-            Key::Character(ch) if ch == "B" => editor.move_prev_long_word_start(),
+            Key::Character(ch) if ch == "w" => editor.move_next_word_start(n),
+            Key::Character(ch) if ch == "W" => editor.move_next_long_word_start(n),
+            Key::Character(ch) if ch == "e" => editor.move_next_word_end(n),
+            Key::Character(ch) if ch == "E" => editor.move_next_long_word_end(n),
+            Key::Character(ch) if ch == "b" => editor.move_prev_word_start(n),
+            Key::Character(ch) if ch == "B" => editor.move_prev_long_word_start(n),
             _ => {}
         },
         Mode::Insert => match key {
@@ -44,23 +57,23 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "v" => editor.enter_normal(),
             Key::Character(ch) if ch == "i" => editor.enter_insert(),
             Key::Character(ch) if ch == "h" => {
-                editor.move_h(Direction::Backward, 1, Movement::Extend)
+                editor.move_h(Direction::Backward, n, Movement::Extend)
             }
             Key::Character(ch) if ch == "l" => {
-                editor.move_h(Direction::Forward, 1, Movement::Extend)
+                editor.move_h(Direction::Forward, n, Movement::Extend)
             }
             Key::Character(ch) if ch == "j" => {
-                editor.move_v(Direction::Forward, 1, Movement::Extend)
+                editor.move_v(Direction::Forward, n, Movement::Extend)
             }
             Key::Character(ch) if ch == "k" => {
-                editor.move_v(Direction::Backward, 1, Movement::Extend)
+                editor.move_v(Direction::Backward, n, Movement::Extend)
             }
-            Key::Character(ch) if ch == "w" => editor.extend_next_word_start(),
-            Key::Character(ch) if ch == "W" => editor.extend_next_long_word_start(),
-            Key::Character(ch) if ch == "e" => editor.extend_next_word_end(),
-            Key::Character(ch) if ch == "E" => editor.extend_next_long_word_end(),
-            Key::Character(ch) if ch == "b" => editor.extend_prev_word_start(),
-            Key::Character(ch) if ch == "B" => editor.extend_prev_long_word_start(),
+            Key::Character(ch) if ch == "w" => editor.extend_next_word_start(n),
+            Key::Character(ch) if ch == "W" => editor.extend_next_long_word_start(n),
+            Key::Character(ch) if ch == "e" => editor.extend_next_word_end(n),
+            Key::Character(ch) if ch == "E" => editor.extend_next_long_word_end(n),
+            Key::Character(ch) if ch == "b" => editor.extend_prev_word_start(n),
+            Key::Character(ch) if ch == "B" => editor.extend_prev_long_word_start(n),
             _ => {}
         },
     }
@@ -159,5 +172,31 @@ mod tests {
         editor.enter_select();
         handle_key(&mut editor, &Key::Character("v".to_string()));
         assert_eq!(editor.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn digits_accumulate_into_count() {
+        let mut e = create_editor();
+        handle_key(&mut e, &Key::Character("1".into()));
+        handle_key(&mut e, &Key::Character("2".into()));
+        assert_eq!(e.count, Some(12));
+    }
+
+    #[test]
+    fn count_then_motion_moves_n_lines_and_clears() {
+        let mut e = create_editor();
+        let line0 = e.document.line_idx(e.selection.primary().head);
+        handle_key(&mut e, &Key::Character("3".into()));
+        handle_key(&mut e, &Key::Character("j".into()));
+        let line_after = e.document.line_idx(e.selection.primary().head);
+        assert_eq!(line_after - line0, 3);
+        assert_eq!(e.count, None); // consumed
+    }
+
+    #[test]
+    fn leading_zero_is_not_a_count() {
+        let mut e = create_editor();
+        handle_key(&mut e, &Key::Character("0".into()));
+        assert_eq!(e.count, None); // fell through to command dispatch (0 unbound -> no-op)
     }
 }
