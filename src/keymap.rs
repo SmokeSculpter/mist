@@ -5,7 +5,7 @@
 //! machine; see the roadmap.
 
 use crate::{
-    editor::Editor,
+    editor::{Editor, PendingFind},
     mode::Mode,
     movement::{Direction, Movement},
 };
@@ -15,6 +15,16 @@ use floem::prelude::{Key, NamedKey};
 /// motions collapse (`Movement::Move`); Select = the same motions extend
 /// (`Movement::Extend` / the `extend_*` word variants); Insert = Esc back to Normal.
 pub fn handle_key(editor: &mut Editor, key: &Key) {
+    // Awaiting f/t/F/T target -- early return gate
+    if let Some(find) = editor.pending_find.take() {
+        if let Key::Character(ch) = key {
+            if let Some(c) = ch.chars().next() {
+                editor.find_char(&find, c);
+            }
+        }
+        // Return if key is any non char key such as ESC
+        return;
+    }
     if editor.mode != Mode::Insert {
         if let Key::Character(ch) = key {
             if let Ok(n) = ch.parse::<usize>() {
@@ -46,6 +56,38 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "E" => editor.move_next_long_word_end(n),
             Key::Character(ch) if ch == "b" => editor.move_prev_word_start(n),
             Key::Character(ch) if ch == "B" => editor.move_prev_long_word_start(n),
+            Key::Character(ch) if ch == "f" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Forward,
+                    inclusive: true,
+                    extend: false,
+                })
+            }
+            Key::Character(ch) if ch == "t" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Forward,
+                    inclusive: false,
+                    extend: false,
+                })
+            }
+            Key::Character(ch) if ch == "F" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Backward,
+                    inclusive: true,
+                    extend: false,
+                })
+            }
+            Key::Character(ch) if ch == "T" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Backward,
+                    inclusive: false,
+                    extend: false,
+                })
+            }
             _ => {}
         },
         Mode::Insert => match key {
@@ -74,6 +116,38 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "E" => editor.extend_next_long_word_end(n),
             Key::Character(ch) if ch == "b" => editor.extend_prev_word_start(n),
             Key::Character(ch) if ch == "B" => editor.extend_prev_long_word_start(n),
+            Key::Character(ch) if ch == "f" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Forward,
+                    inclusive: true,
+                    extend: true,
+                })
+            }
+            Key::Character(ch) if ch == "t" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Forward,
+                    inclusive: false,
+                    extend: true,
+                })
+            }
+            Key::Character(ch) if ch == "F" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Backward,
+                    inclusive: true,
+                    extend: true,
+                })
+            }
+            Key::Character(ch) if ch == "T" => {
+                editor.pending_find = Some(PendingFind {
+                    count: n,
+                    dir: Direction::Backward,
+                    inclusive: false,
+                    extend: true,
+                })
+            }
             _ => {}
         },
     }
@@ -88,6 +162,25 @@ mod tests {
     fn create_editor() -> Editor {
         let path = "./src/document.rs";
         Editor::new(Path::new(&path)).unwrap()
+    }
+
+    #[test]
+    fn f_finds_char_forward() {
+        let mut e = create_editor(); // buffer starts at char 0
+        let start = e.selection.primary().head;
+        handle_key(&mut e, &Key::Character("f".into()));
+        handle_key(&mut e, &Key::Character("e".into())); // jump to first 'e'
+        assert!(e.selection.primary().cursor(e.document.rope().slice(..)) > start);
+        assert!(e.pending_find.is_none()); // consumed
+    }
+
+    #[test]
+    fn count_then_f_finds_nth() {
+        let mut e = create_editor();
+        handle_key(&mut e, &Key::Character("2".into()));
+        handle_key(&mut e, &Key::Character("f".into()));
+        handle_key(&mut e, &Key::Character("e".into())); // 2nd 'e'
+        // assert cursor is on the 2nd 'e' vs 1st — compare against a plain `fe`
     }
 
     #[test]

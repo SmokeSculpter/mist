@@ -4,16 +4,27 @@
 //! transforms each range, and stores the result. Transactions/history land here later.
 
 use crate::document::Document;
+use crate::grapheme::next_grapheme_boundary;
 use crate::mode::Mode;
 use crate::movement::{
     Direction, Movement, move_horizontally, move_next_long_word_end, move_next_long_word_start,
     move_next_word_end, move_next_word_start, move_prev_long_word_end, move_prev_long_word_start,
     move_prev_word_end, move_prev_word_start, move_vertically,
 };
+use crate::search::find_nth_char;
 use crate::selection::{Range, Selection};
 use anyhow::Result;
 use ropey::RopeSlice;
 use std::path::Path;
+
+/// Waiting for the target char of an f/t/F/T motion. `Some` = the next Character
+/// key is a literal target, not a command. Captures the params fixed at f-press time.
+pub struct PendingFind {
+    pub count: usize,
+    pub dir: Direction,
+    pub inclusive: bool,
+    pub extend: bool,
+}
 
 /// The single source of truth for editor state.
 pub struct Editor {
@@ -21,6 +32,7 @@ pub struct Editor {
     pub selection: Selection,
     pub mode: Mode,
     pub count: Option<usize>,
+    pub pending_find: Option<PendingFind>,
 }
 
 impl Editor {
@@ -33,6 +45,41 @@ impl Editor {
             selection,
             mode: Mode::Normal,
             count: None,
+            pending_find: None,
+        })
+    }
+
+    pub fn find_char(&mut self, find: &PendingFind, char: char) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self.selection.clone().transform(|r| {
+            let cursor_anchor = r.cursor(rope);
+            let cursor_head = next_grapheme_boundary(rope, cursor_anchor);
+
+            // Where to begin the search. 't' skips one extra char so a repeated 't'
+            // doesn't get stuck on the char it's already sitting before.
+            let search_start = match (find.inclusive, find.dir) {
+                (true, Direction::Forward) => cursor_head,
+                (true, Direction::Backward) => cursor_anchor,
+                (false, Direction::Forward) => cursor_head + 1,
+                (false, Direction::Backward) => cursor_anchor.saturating_sub(1),
+            };
+
+            match find_nth_char(find.count, rope, char, search_start, find.dir) {
+                None => r,
+                Some(found) => {
+                    // 't' stops one short of the match (on the near side)
+                    let pos = match (find.inclusive, find.dir) {
+                        (true, _) => found,
+                        (false, Direction::Forward) => found - 1,
+                        (false, Direction::Backward) => found + 1,
+                    };
+                    if find.extend {
+                        r.put_cursor(rope, pos, true)
+                    } else {
+                        Range::point(r.cursor(rope)).put_cursor(rope, pos, true)
+                    }
+                }
+            }
         })
     }
 

@@ -6,6 +6,7 @@ mod keymap;
 mod line_ending;
 mod mode;
 mod movement;
+mod search;
 mod selection;
 mod ui;
 use floem::prelude::*;
