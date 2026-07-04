@@ -3,6 +3,12 @@ use ropey::{Rope, RopeSlice};
 pub type Change = (usize, usize, Option<String>);
 pub type Deletion = (usize, usize);
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Assoc {
+    Before,
+    After,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operation {
     Retain(usize),
@@ -27,6 +33,42 @@ pub struct ChangeSet {
 }
 
 impl ChangeSet {
+    pub fn map_pos(&self, pos: usize, assoc: Assoc) -> usize {
+        let mut old_pos = 0;
+        let mut new_pos = 0;
+
+        for change in &self.changes {
+            match change {
+                Operation::Retain(n) => {
+                    if old_pos + n > pos {
+                        return new_pos + (pos - old_pos); // Inside retained span: shift by net offset
+                    }
+                    old_pos += n;
+                    new_pos += n;
+                }
+                Operation::Delete(n) => {
+                    if old_pos + n > pos {
+                        return new_pos; // pos was inside deleted text -> collapse to deletion point
+                    }
+                    old_pos += n;
+                }
+                Operation::Insert(s) => {
+                    let ins = s.chars().count();
+                    if old_pos == pos {
+                        // at the insert point: Before stays, After jumps past inserted text
+                        return match assoc {
+                            Assoc::Before => new_pos,
+                            Assoc::After => new_pos + ins,
+                        };
+                    }
+                    new_pos += ins;
+                }
+            }
+        }
+
+        new_pos
+    }
+
     #[inline]
     pub fn new(doc: RopeSlice) -> Self {
         let len = doc.len_chars();
@@ -329,5 +371,73 @@ mod tests {
         let set = cs("abcde", vec![(1, 3, Some("XYZ".into()))]); // delete 2, insert 3
         assert_eq!(set.len, 5); // original length
         assert_eq!(set.len_after, 6); // 5 - 2 + 3
+    }
+
+    // ---- map_pos ----
+
+    #[test]
+    fn map_pos_unchanged_by_later_edit() {
+        // edit sits AFTER pos -> pos is untouched
+        let set = cs("abcde", vec![(3, 4, Some("X".into()))]);
+        assert_eq!(set.map_pos(1, Assoc::After), 1);
+    }
+
+    #[test]
+    fn map_pos_insert_shifts_later_positions() {
+        // insert "XY" at 0, then 'c' (old pos 2) must move right by 2 -> catches the
+        // missing `new_pos += ins` bug
+        let set = cs("abc", vec![(0, 0, Some("XY".into()))]);
+        assert_eq!(set.map_pos(2, Assoc::After), 4);
+        assert_eq!(set.map_pos(2, Assoc::Before), 4); // assoc only matters AT the insert point
+    }
+
+    #[test]
+    fn map_pos_at_insert_point_respects_assoc() {
+        // insert "XY" at pos 1
+        let set = cs("abc", vec![(1, 1, Some("XY".into()))]);
+        assert_eq!(set.map_pos(1, Assoc::Before), 1); // stay before inserted text
+        assert_eq!(set.map_pos(1, Assoc::After), 3); // jump past inserted text
+    }
+
+    #[test]
+    fn map_pos_inside_deletion_collapses() {
+        // delete chars [1,4) of "abcde"; positions 1,2,3 all collapse to deletion point (1)
+        let set = cs("abcde", vec![(1, 4, None)]);
+        assert_eq!(set.map_pos(1, Assoc::After), 1);
+        assert_eq!(set.map_pos(2, Assoc::After), 1);
+        assert_eq!(set.map_pos(3, Assoc::After), 1);
+    }
+
+    #[test]
+    fn map_pos_after_deletion_shifts_down() {
+        // delete [1,3) of "abcde"; 'd' (old pos 3) is the boundary, 'e' (old 4) -> 2
+        let set = cs("abcde", vec![(1, 3, None)]);
+        assert_eq!(set.map_pos(3, Assoc::After), 1); // first char past the deletion
+        assert_eq!(set.map_pos(4, Assoc::After), 2);
+    }
+
+    #[test]
+    fn map_pos_replace_start() {
+        // replace [1,2) "b" with "XYZ" -> [Retain(1), Insert("XYZ"), Delete(1), Retain(3)]
+        // pos at replace start hits the Insert arm first (canonical order matters)
+        let set = cs("abcd", vec![(1, 2, Some("XYZ".into()))]);
+        assert_eq!(set.map_pos(1, Assoc::Before), 1);
+        assert_eq!(set.map_pos(1, Assoc::After), 4); // past inserted "XYZ"
+        assert_eq!(set.map_pos(2, Assoc::After), 4); // char after replaced text
+    }
+
+    #[test]
+    fn map_pos_start_and_end_of_doc() {
+        let set = cs("abc", vec![(1, 1, Some("Z".into()))]);
+        assert_eq!(set.map_pos(0, Assoc::After), 0); // before any edit
+        assert_eq!(set.map_pos(3, Assoc::After), 4); // doc end, pushed by the insert
+    }
+
+    #[test]
+    fn map_pos_multibyte() {
+        // "café" -> insert "ü" before 'é' (old pos 3); 'é' shifts to 4
+        let set = cs("café", vec![(3, 3, Some("ü".into()))]);
+        assert_eq!(set.map_pos(3, Assoc::After), 4);
+        assert_eq!(set.map_pos(3, Assoc::Before), 3);
     }
 }
