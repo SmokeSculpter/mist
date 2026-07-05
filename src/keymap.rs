@@ -66,6 +66,11 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
                 editor.move_v(Direction::Backward, n, Movement::Move)
             }
             Key::Character(ch) if ch == "i" => editor.enter_insert(),
+            Key::Character(ch) if ch == "a" => editor.enter_insert_append(),
+            Key::Character(ch) if ch == "I" => editor.insert_at_line_start(),
+            Key::Character(ch) if ch == "A" => editor.insert_at_line_end(),
+            Key::Character(ch) if ch == "o" => editor.open_below(),
+            Key::Character(ch) if ch == "O" => editor.open_above(),
             Key::Character(ch) if ch == "v" => editor.enter_select(),
             Key::Character(ch) if ch == "w" => editor.move_next_word_start(n),
             Key::Character(ch) if ch == "W" => editor.move_next_long_word_start(n),
@@ -112,12 +117,27 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
         },
         Mode::Insert => match key {
             Key::Named(NamedKey::Escape) => editor.enter_normal(),
+            Key::Named(NamedKey::Home) => editor.goto_line_start(false),
+            Key::Named(NamedKey::End) => editor.goto_line_end(false),
+            Key::Named(NamedKey::Backspace) => editor.delete_char_backward(),
+            Key::Named(NamedKey::Enter) => editor.insert_text("\n"),
+            Key::Named(NamedKey::Tab) => editor.insert_text("\t"),
+            Key::Character(ch) => {
+                if let Some(c) = ch.chars().next() {
+                    editor.insert_char(c);
+                }
+            }
             _ => {}
         },
         Mode::Select => match key {
             Key::Named(NamedKey::Escape) => editor.enter_normal(),
             Key::Character(ch) if ch == "v" => editor.enter_normal(),
             Key::Character(ch) if ch == "i" => editor.enter_insert(),
+            Key::Character(ch) if ch == "a" => editor.enter_insert_append(),
+            Key::Character(ch) if ch == "I" => editor.insert_at_line_start(),
+            Key::Character(ch) if ch == "A" => editor.insert_at_line_end(),
+            Key::Character(ch) if ch == "o" => editor.open_below(),
+            Key::Character(ch) if ch == "O" => editor.open_above(),
             Key::Character(ch) if ch == "h" => {
                 editor.move_h(Direction::Backward, n, Movement::Extend)
             }

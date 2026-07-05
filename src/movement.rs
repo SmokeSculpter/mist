@@ -42,6 +42,13 @@ pub enum WordMotionTarget {
     PrevLongWordStart,
 }
 
+/// Char offset within `line` of the first non-whitespace char, or `None` if the
+/// line is empty or all whitespace. The trailing `\n` counts as whitespace, so a
+/// blank line yields `None` (callers fall back to line start).
+pub fn first_non_whitespace_char(line: RopeSlice) -> Option<usize> {
+    line.chars().position(|ch| !ch.is_whitespace())
+}
+
 /// Shared engine for every word motion: seed a starting range at the current cursor
 /// (oriented for the motion direction), then step to the `target` boundary `count`
 /// times via `range_to_target`. Returns the covering `anchor..head` range. Early-outs
@@ -421,5 +428,21 @@ mod tests {
         // Extend: anchor stays 0, head covers through the target grapheme
         let ext = move_vertically(s, start, Direction::Forward, 1, Movement::Extend);
         assert_eq!((ext.anchor, ext.head), (0, 7));
+    }
+
+    #[test]
+    fn first_non_ws_finds_indent_end() {
+        let r = Rope::from_str("    abc\n");
+        assert_eq!(first_non_whitespace_char(r.line(0)), Some(4));
+    }
+    #[test]
+    fn first_non_ws_tabs() {
+        let r = Rope::from_str("\t\tx");
+        assert_eq!(first_non_whitespace_char(r.line(0)), Some(2));
+    }
+    #[test]
+    fn first_non_ws_blank_line_is_none() {
+        let r = Rope::from_str("\n");
+        assert_eq!(first_non_whitespace_char(r.line(0)), None);
     }
 }

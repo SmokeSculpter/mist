@@ -7,15 +7,16 @@ use crate::document::Document;
 use crate::grapheme::{next_grapheme_boundary, prev_grapheme_boundary};
 use crate::mode::Mode;
 use crate::movement::{
-    Direction, Movement, line_char_len, move_horizontally, move_next_long_word_end,
-    move_next_long_word_start, move_next_word_end, move_next_word_start, move_prev_long_word_start,
-    move_prev_word_start, move_vertically,
+    Direction, Movement, first_non_whitespace_char, line_char_len, move_horizontally,
+    move_next_long_word_end, move_next_long_word_start, move_next_word_end, move_next_word_start,
+    move_prev_long_word_start, move_prev_word_start, move_vertically,
 };
 use crate::search::find_nth_char;
 use crate::selection::{Range, Selection};
 use crate::transaction::Transaction;
 use anyhow::Result;
 use ropey::RopeSlice;
+use smallvec::SmallVec;
 use std::path::Path;
 
 /// Waiting for the target char of an f/t/F/T motion. `Some` = the next Character
@@ -51,6 +52,35 @@ impl Editor {
             pending_goto: false,
         })
     }
+
+    pub fn insert_char(&mut self, c: char) {
+        let rope = self.document.rope();
+        let tx = Transaction::change_by_selection(rope, &self.selection, |r| {
+            let pos = r.head;
+            (pos, pos, Some(c.to_string()))
+        });
+        self.apply_transaction(tx);
+    }
+
+    pub fn insert_text(&mut self, text: &str) {
+        let rope = self.document.rope();
+        let tx = Transaction::change_by_selection(rope, &self.selection, |r| {
+            let pos = r.head;
+            (pos, pos, Some(text.to_string()))
+        });
+        self.apply_transaction(tx);
+    }
+
+    pub fn delete_char_backward(&mut self) {
+        let rope = self.document.rope().slice(..);
+        let tx = Transaction::change_by_selection(self.document.rope(), &self.selection, |r| {
+            let to = r.head;
+            let from = prev_grapheme_boundary(rope, to);
+            (from, to, None)
+        });
+        self.apply_transaction(tx);
+    }
+
     pub fn apply_transaction(&mut self, tx: Transaction) {
         if tx.changes().is_empty() {
             return;
@@ -152,7 +182,73 @@ impl Editor {
     }
 
     pub fn enter_insert(&mut self) {
+        self.selection = self
+            .selection
+            .clone()
+            .transform(|r| Range::new(r.to(), r.from()));
         self.mode = Mode::Insert;
+    }
+
+    pub fn enter_insert_append(&mut self) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self.selection.clone().transform(|r| {
+            let pos = next_grapheme_boundary(rope, r.cursor(rope));
+            r.put_cursor(rope, pos, false)
+        });
+        self.mode = Mode::Insert;
+    }
+
+    pub fn insert_at_line_start(&mut self) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self.selection.clone().transform(|r| {
+            let line = rope.char_to_line(r.cursor(rope));
+            let line_start = rope.line_to_char(line);
+            let pos = first_non_whitespace_char(rope.line(line))
+                .map(|off| line_start + off)
+                .unwrap_or(line_start);
+            r.put_cursor(rope, pos, false)
+        });
+        self.mode = Mode::Insert;
+    }
+
+    pub fn insert_at_line_end(&mut self) {
+        let rope = self.document.rope().slice(..);
+        self.selection = self.selection.clone().transform(|r| {
+            let line = rope.char_to_line(r.cursor(rope));
+            let line_start = rope.line_to_char(line);
+            let pos = line_start + line_char_len(rope, line);
+
+            r.put_cursor(rope, pos, false)
+        });
+        self.mode = Mode::Insert;
+    }
+
+    pub fn open_below(&mut self) {
+        self.enter_insert();
+        let rope = self.document.rope().slice(..);
+        let mut carets = SmallVec::new();
+        let tx = Transaction::change_by_selection(self.document.rope(), &self.selection, |r| {
+            let line = rope.char_to_line(r.cursor(rope));
+            let pos = rope.line_to_char(line) + line_char_len(rope, line);
+            carets.push(Range::point(pos + 1));
+            (pos, pos, Some("\n".to_string()))
+        });
+        let sel = Selection::new(carets, self.selection.primary_index());
+        self.apply_transaction(tx.with_selection(sel));
+    }
+
+    pub fn open_above(&mut self) {
+        self.enter_insert();
+        let rope = self.document.rope().slice(..);
+        let mut carets = SmallVec::new();
+        let tx = Transaction::change_by_selection(self.document.rope(), &self.selection, |r| {
+            let line = rope.char_to_line(r.cursor(rope));
+            let pos = rope.line_to_char(line);
+            carets.push(Range::point(pos));
+            (pos, pos, Some("\n".to_string()))
+        });
+        let sel = Selection::new(carets, self.selection.primary_index());
+        self.apply_transaction(tx.with_selection(sel));
     }
 
     pub fn enter_normal(&mut self) {
@@ -277,6 +373,24 @@ mod tests {
         Editor::new(Path::new(&path)).unwrap()
     }
 
+    /// Editor over a known in-memory buffer, cursor collapsed at `pos`.
+    fn editor_with(text: &str, pos: usize) -> Editor {
+        let mut e = create_editor();
+        e.document = crate::document::Document::from_str(text);
+        e.selection = Selection::point(pos);
+        e.mode = Mode::Normal;
+        e
+    }
+
+    fn head(e: &Editor) -> usize {
+        e.selection.primary().head
+    }
+
+    fn is_point(e: &Editor) -> bool {
+        let r = e.selection.primary();
+        r.anchor == r.head
+    }
+
     #[test]
     fn apply_transaction_inserts_and_moves_cursor() {
         let mut e = create_editor(); // cursor at 0
@@ -286,5 +400,118 @@ mod tests {
         e.apply_transaction(tx);
         assert_eq!(e.document.rope().char(0), 'X');
         assert_eq!(e.selection.primary().head, 1); // cursor moved past inserted char
+    }
+
+    // ---- typing ----
+
+    #[test]
+    fn insert_char_inserts_at_cursor_and_advances() {
+        let mut e = editor_with("hello", 0);
+        e.insert_char('X');
+        assert_eq!(e.document.rope().to_string(), "Xhello");
+        assert_eq!(head(&e), 1);
+        assert!(is_point(&e));
+    }
+
+    #[test]
+    fn delete_char_backward_removes_grapheme_before_cursor() {
+        let mut e = editor_with("hello", 3); // cursor before 'l' (index 3)
+        e.delete_char_backward();
+        assert_eq!(e.document.rope().to_string(), "helo"); // 'l' at index 2 removed
+        assert_eq!(head(&e), 2);
+    }
+
+    #[test]
+    fn delete_char_backward_at_start_is_noop() {
+        let mut e = editor_with("hello", 0);
+        e.delete_char_backward();
+        assert_eq!(e.document.rope().to_string(), "hello");
+        assert_eq!(head(&e), 0);
+    }
+
+    // ---- insert-entry: i / a ----
+
+    #[test]
+    fn enter_insert_collapses_selection_to_left_edge() {
+        let mut e = editor_with("hello", 0);
+        e.selection = Selection::single(1, 4); // anchor 1, head 4
+        e.enter_insert();
+        assert_eq!(e.mode, Mode::Insert);
+        assert_eq!(head(&e), 1); // head lands on the left edge (from)
+    }
+
+    #[test]
+    fn append_moves_one_past_and_stays_a_point() {
+        let mut e = editor_with("hello", 2);
+        e.enter_insert_append();
+        assert_eq!(e.mode, Mode::Insert);
+        assert_eq!(head(&e), 3); // one grapheme past the cursor
+        assert!(is_point(&e)); // guards the growing-selection bug
+    }
+
+    #[test]
+    fn append_then_type_does_not_grow_selection() {
+        let mut e = editor_with("hello", 1); // on 'e'
+        e.enter_insert_append(); // caret -> 2 (after 'e')
+        e.insert_char('X');
+        e.insert_char('Y');
+        assert_eq!(e.document.rope().to_string(), "heXYllo");
+        assert_eq!(head(&e), 4);
+        assert!(is_point(&e)); // caret moves, selection never grows
+    }
+
+    // ---- insert-entry: I / A ----
+
+    #[test]
+    fn insert_at_line_start_lands_on_first_non_whitespace() {
+        let mut e = editor_with("    abc\ndef", 6); // line 0, on 'b'
+        e.insert_at_line_start();
+        assert_eq!(e.mode, Mode::Insert);
+        assert_eq!(head(&e), 4); // first non-ws of the 4-space indent
+    }
+
+    #[test]
+    fn insert_at_line_start_uses_the_cursors_own_line() {
+        // catches the whole-doc-vs-line + minus-vs-plus bugs on a non-first line
+        let mut e = editor_with("x\n   yz", 5); // line 1 (starts at char 2), on 'y'
+        e.insert_at_line_start();
+        assert_eq!(head(&e), 5); // line_start(2) + first_non_ws(3 spaces) = 5
+    }
+
+    #[test]
+    fn insert_at_line_start_blank_line_falls_back_to_line_start() {
+        let mut e = editor_with("abc", 2);
+        e.insert_at_line_start();
+        assert_eq!(head(&e), 0); // no indent -> column 0
+    }
+
+    #[test]
+    fn insert_at_line_end_lands_before_newline() {
+        let mut e = editor_with("hello\nworld", 0);
+        e.insert_at_line_end();
+        assert_eq!(e.mode, Mode::Insert);
+        assert_eq!(head(&e), 5); // end of "hello", before the '\n'
+    }
+
+    // ---- insert-entry: o / O ----
+
+    #[test]
+    fn open_below_inserts_newline_after_line_and_moves_down() {
+        let mut e = editor_with("ab\ncd", 0); // line 0
+        e.open_below();
+        assert_eq!(e.mode, Mode::Insert);
+        assert_eq!(e.document.rope().to_string(), "ab\n\ncd");
+        assert_eq!(head(&e), 3); // start of the new empty line
+        assert!(is_point(&e));
+    }
+
+    #[test]
+    fn open_above_inserts_newline_before_line_and_stays() {
+        let mut e = editor_with("ab\ncd", 3); // line 1, on 'c'
+        e.open_above();
+        assert_eq!(e.mode, Mode::Insert);
+        assert_eq!(e.document.rope().to_string(), "ab\n\ncd");
+        assert_eq!(head(&e), 3); // caret on the new empty line above old line 1
+        assert!(is_point(&e));
     }
 }

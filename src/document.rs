@@ -169,6 +169,20 @@ impl Document {
 }
 
 #[cfg(test)]
+impl Document {
+    /// Build a document from an in-memory UTF-8 string, for deterministic tests
+    /// (no temp files). `&[u8]` implements `Read`, so it feeds `from_reader` directly.
+    pub fn from_str(text: &str) -> Self {
+        let (rope, encoding, has_bom) = Self::from_reader(&mut text.as_bytes(), None).unwrap();
+        Self {
+            rope,
+            encoding,
+            has_bom,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use encoding_rs::{UTF_8, WINDOWS_1252};
