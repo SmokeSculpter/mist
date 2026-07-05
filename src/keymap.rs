@@ -219,6 +219,16 @@ mod tests {
         Editor::new(Path::new(&path)).unwrap()
     }
 
+    /// Editor over a known in-memory buffer, cursor at char 0. Deterministic — use
+    /// this instead of `create_editor` when a test asserts exact positions.
+    fn editor_with(text: &str) -> Editor {
+        let mut e = create_editor();
+        e.document = crate::document::Document::from_str(text);
+        e.selection = crate::selection::Selection::point(0);
+        e.mode = Mode::Normal;
+        e
+    }
+
     #[test]
     fn f_finds_char_forward() {
         let mut e = create_editor(); // buffer starts at char 0
@@ -231,11 +241,23 @@ mod tests {
 
     #[test]
     fn count_then_f_finds_nth() {
-        let mut e = create_editor();
-        handle_key(&mut e, &Key::Character("2".into()));
-        handle_key(&mut e, &Key::Character("f".into()));
-        handle_key(&mut e, &Key::Character("e".into())); // 2nd 'e'
-        // assert cursor is on the 2nd 'e' vs 1st — compare against a plain `fe`
+        // "beebee": 'e' at char indices 1, 2, 4, 5. `fe` lands on the 1st; `2fe` on the 2nd.
+        let mut one = editor_with("beebee");
+        handle_key(&mut one, &Key::Character("f".into()));
+        handle_key(&mut one, &Key::Character("e".into()));
+        let p1 = one.selection.primary().cursor(one.document.rope().slice(..));
+
+        let mut two = editor_with("beebee");
+        handle_key(&mut two, &Key::Character("2".into()));
+        handle_key(&mut two, &Key::Character("f".into()));
+        handle_key(&mut two, &Key::Character("e".into()));
+        let p2 = two.selection.primary().cursor(two.document.rope().slice(..));
+
+        assert_eq!(p1, 1); // first 'e'
+        assert_eq!(p2, 2); // second 'e' — the count took effect
+        assert!(p2 > p1);
+        assert!(two.pending_find.is_none()); // find target consumed
+        assert_eq!(two.count, None); // count consumed
     }
 
     #[test]

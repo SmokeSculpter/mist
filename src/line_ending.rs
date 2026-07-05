@@ -6,7 +6,7 @@
 
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 pub enum LineEnding {
-    Crlf, // Cariage return followed by line feed
+    Crlf, // Carriage return followed by line feed
 
     LF, // Line feed
 
@@ -18,9 +18,9 @@ pub enum LineEnding {
 
     Nel, // Next line
 
-    LS, // Line seperator
+    LS, // Line separator
 
-    PS, // Paragraph seperator
+    PS, // Paragraph separator
 }
 
 impl LineEnding {

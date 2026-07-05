@@ -1,3 +1,7 @@
+//! Character search over the rope. Currently just `find_nth_char`, the primitive
+//! behind the `f/t/F/T` find-char motions (see `Editor::find_char`). Full `/` `?`
+//! `n` `N` text search is a later addition. Ported from Helix `search.rs`.
+
 use crate::movement::Direction;
 use ropey::RopeSlice;
 

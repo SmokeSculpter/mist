@@ -1,3 +1,11 @@
+//! Render geometry + painting for the editor surface, split into a pure planning
+//! pass and dumb consumers. `plan_screen_lines(&Editor, Size, &FontConfig)` computes
+//! a `ScreenLines` (visible-line-range math + per-line `TextLayout` + caret/selection
+//! rects) with no side effects — so it's headless-testable — and the `paint_*` fns
+//! only fill/draw from it. All positions are char indices into the rope; floem's
+//! layout APIs index by *byte* within a line, hence the `char_to_byte_in_line` hops.
+//! Colors are still inline here (theme-struct extraction is v2 item 1).
+
 use floem::Renderer;
 use floem::context::PaintCx;
 use floem::kurbo::{Point, Rect, Size};
@@ -140,6 +148,9 @@ pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> Scre
                     .char_to_byte_in_line(seg_to - line_start, line_slice);
                 let x0 = layout.cursor_point(b0, Affinity::Downstream).x;
                 let x1 = layout.cursor_point(b1, Affinity::Downstream).x;
+                // `- true_line_height * 0.25`: nudge the rect up to vertically center
+                // the fill inside the `line_height` band (the shaped glyph box is
+                // shorter than line_height). Same fudge is applied to caret rects.
                 selection_rects.push(Rect::from_origin_size(
                     (x0, y - true_line_height * 0.25),
                     (x1 - x0, font.line_height),
@@ -151,6 +162,9 @@ pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> Scre
         for (byte, next_byte) in caret_bytes {
             let x0 = layout.cursor_point(byte, Affinity::Downstream).x;
             let x1 = layout.cursor_point(next_byte, Affinity::Downstream).x;
+            // Insert mode: a 2px bar. Normal/Select: a block the width of the grapheme
+            // under it (x1 - x0). Fallback (x1 == x0, e.g. caret past line end / empty
+            // line where there's no glyph to measure): a nominal ~0.6em block.
             let caret_w = if mode == Mode::Insert {
                 2.0
             } else if x1 > x0 {
