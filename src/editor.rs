@@ -13,6 +13,7 @@ use crate::movement::{
 };
 use crate::search::find_nth_char;
 use crate::selection::{Range, Selection};
+use crate::transaction::Transaction;
 use anyhow::Result;
 use ropey::RopeSlice;
 use std::path::Path;
@@ -49,6 +50,20 @@ impl Editor {
             pending_find: None,
             pending_goto: false,
         })
+    }
+    pub fn apply_transaction(&mut self, tx: Transaction) {
+        if tx.changes().is_empty() {
+            return;
+        }
+        // Later: let inverse = tx.invert(self.document.rope()); push (inverse, old_self) to history
+
+        let new_selection = match tx.selection() {
+            Some(sel) => sel.clone(),
+            None => self.selection.clone().map(tx.changes()),
+        };
+
+        self.document.apply(&tx);
+        self.selection = new_selection;
     }
 
     fn goto(&mut self, pos: usize, extend: bool) {
@@ -249,5 +264,27 @@ impl Editor {
             .selection
             .clone()
             .transform(|r| move_vertically(rope, r, dir, count, movement));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn create_editor() -> Editor {
+        let path = "./src/editor.rs";
+        Editor::new(Path::new(&path)).unwrap()
+    }
+
+    #[test]
+    fn apply_transaction_inserts_and_moves_cursor() {
+        let mut e = create_editor(); // cursor at 0
+        let tx = Transaction::change_by_selection(e.document.rope(), &e.selection, |r| {
+            (r.head, r.head, Some("X".into()))
+        });
+        e.apply_transaction(tx);
+        assert_eq!(e.document.rope().char(0), 'X');
+        assert_eq!(e.selection.primary().head, 1); // cursor moved past inserted char
     }
 }

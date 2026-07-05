@@ -12,6 +12,7 @@ use crate::{
         prev_grapheme_boundary,
     },
     movement::Direction,
+    transaction::{Assoc, ChangeSet},
 };
 
 /// A single selection range, half-open `[from, to)` in char indices.
@@ -277,6 +278,20 @@ impl Selection {
     #[must_use]
     pub fn primary_mut(&mut self) -> &mut Range {
         &mut self.ranges[self.primary_index]
+    }
+
+    pub fn map(self, changes: &ChangeSet) -> Selection {
+        let ranges = self
+            .ranges
+            .iter()
+            .map(|r| {
+                Range::new(
+                    changes.map_pos(r.anchor, Assoc::After),
+                    changes.map_pos(r.head, Assoc::After),
+                )
+            })
+            .collect();
+        Selection::new(ranges, self.primary_index)
     }
 
     pub fn ranges(&self) -> &[Range] {

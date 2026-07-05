@@ -10,6 +10,8 @@ use ropey::{Rope, RopeBuilder, RopeSlice};
 use std::io::Read;
 use std::path::Path;
 
+use crate::transaction::Transaction;
+
 const BUF_SIZE: usize = 8192;
 
 /// An open buffer. Fields are private with accessors below so the rope stays the one
@@ -23,6 +25,10 @@ pub struct Document {
 }
 
 impl Document {
+    pub fn apply(&mut self, tx: &Transaction) -> bool {
+        tx.apply(&mut self.rope)
+    }
+
     pub fn rope(&self) -> &Rope {
         &self.rope
     }
