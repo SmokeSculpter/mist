@@ -1,7 +1,76 @@
 use ropey::{Rope, RopeSlice};
 
+use crate::selection::{Range, Selection};
+
 pub type Change = (usize, usize, Option<String>);
 pub type Deletion = (usize, usize);
+
+pub struct Transaction {
+    changes: ChangeSet,
+    selection: Option<Selection>,
+}
+
+impl Transaction {
+    pub fn new(doc: &Rope) -> Self {
+        Self {
+            changes: ChangeSet::new(doc.slice(..)),
+            selection: None,
+        }
+    }
+
+    pub fn changes(&self) -> &ChangeSet {
+        &self.changes
+    }
+
+    pub fn selection(&self) -> Option<&Selection> {
+        self.selection.as_ref()
+    }
+
+    pub fn apply(&self, doc: &mut Rope) -> bool {
+        if self.changes.is_empty() {
+            return true;
+        }
+
+        self.changes.apply(doc)
+    }
+
+    pub fn invert(&self, original: &Rope) -> Self {
+        let changes = self.changes.invert(original);
+
+        Self {
+            changes,
+            selection: None,
+        }
+    }
+
+    pub fn with_selection(mut self, selection: Selection) -> Self {
+        self.selection = Some(selection);
+        self
+    }
+
+    pub fn change<I>(doc: &Rope, changes: I) -> Self
+    where
+        I: Iterator<Item = Change>,
+    {
+        Self::from(ChangeSet::from_changes(doc, changes))
+    }
+
+    pub fn change_by_selection<F>(doc: &Rope, selection: &Selection, f: F) -> Self
+    where
+        F: FnMut(&Range) -> Change,
+    {
+        Self::change(doc, selection.ranges().iter().map(f))
+    }
+}
+
+impl From<ChangeSet> for Transaction {
+    fn from(changes: ChangeSet) -> Self {
+        Self {
+            changes,
+            selection: None,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Assoc {
@@ -439,5 +508,90 @@ mod tests {
         let set = cs("café", vec![(3, 3, Some("ü".into()))]);
         assert_eq!(set.map_pos(3, Assoc::After), 4);
         assert_eq!(set.map_pos(3, Assoc::Before), 3);
+    }
+
+    // ---- Transaction ----
+
+    #[test]
+    fn transaction_from_changeset_has_no_selection() {
+        let set = cs("abc", vec![(0, 0, Some("X".into()))]);
+        let tx = Transaction::from(set);
+        assert!(tx.selection().is_none());
+    }
+
+    #[test]
+    fn transaction_apply_empty_is_noop() {
+        // an all-retain (empty) transaction leaves the doc untouched and reports success
+        let mut doc = Rope::from_str("abc");
+        let tx = Transaction::new(&doc); // no changes recorded
+        assert!(tx.apply(&mut doc));
+        assert_eq!(doc.to_string(), "abc");
+    }
+
+    #[test]
+    fn transaction_apply_change() {
+        let mut doc = Rope::from_str("abc");
+        let tx = Transaction::change(&doc, vec![(1, 1, Some("Z".into()))].into_iter());
+        assert!(tx.apply(&mut doc));
+        assert_eq!(doc.to_string(), "aZbc");
+    }
+
+    #[test]
+    fn transaction_invert_roundtrip() {
+        let original = Rope::from_str("hello world");
+        let tx = Transaction::change(&original, vec![(0, 5, Some("bye".into()))].into_iter());
+        let inverse = tx.invert(&original);
+
+        let mut doc = original.clone();
+        assert!(tx.apply(&mut doc));
+        assert_eq!(doc.to_string(), "bye world");
+        assert!(inverse.apply(&mut doc));
+        assert_eq!(doc, original);
+    }
+
+    #[test]
+    fn with_selection_stores_it() {
+        let doc = Rope::from_str("abc");
+        let sel = Selection::point(2);
+        let tx = Transaction::new(&doc).with_selection(sel.clone());
+        assert_eq!(tx.selection(), Some(&sel));
+    }
+
+    #[test]
+    fn change_by_selection_single_cursor_insert() {
+        // one cursor at pos 1; insert "X" there
+        let doc = Rope::from_str("abc");
+        let sel = Selection::point(1);
+        let tx = Transaction::change_by_selection(&doc, &sel, |r| (r.head, r.head, Some("X".into())));
+
+        let mut d = doc.clone();
+        assert!(tx.apply(&mut d));
+        assert_eq!(d.to_string(), "aXbc");
+    }
+
+    #[test]
+    fn change_by_selection_multi_cursor_insert() {
+        use smallvec::smallvec;
+        // two cursors at 0 and 3 in "abcdef"; insert "X" at each.
+        // changes are emitted in OLD-doc coords, sorted -> from_changes stays valid
+        let doc = Rope::from_str("abcdef");
+        let sel = Selection::new(smallvec![Range::point(0), Range::point(3)], 0);
+        let tx = Transaction::change_by_selection(&doc, &sel, |r| (r.head, r.head, Some("X".into())));
+
+        let mut d = doc.clone();
+        assert!(tx.apply(&mut d));
+        assert_eq!(d.to_string(), "XabcXdef");
+    }
+
+    #[test]
+    fn change_by_selection_delete_before_cursor() {
+        // backspace-style: delete the char before each cursor
+        let doc = Rope::from_str("abc");
+        let sel = Selection::point(2); // between 'b' and 'c'
+        let tx = Transaction::change_by_selection(&doc, &sel, |r| (r.head - 1, r.head, None));
+
+        let mut d = doc.clone();
+        assert!(tx.apply(&mut d));
+        assert_eq!(d.to_string(), "ac"); // 'b' removed
     }
 }
