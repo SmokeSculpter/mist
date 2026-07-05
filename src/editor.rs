@@ -19,6 +19,11 @@ use ropey::RopeSlice;
 use smallvec::SmallVec;
 use std::path::Path;
 
+struct HistoryEntry {
+    forward: Transaction,
+    inverse: Transaction,
+}
+
 /// Waiting for the target char of an f/t/F/T motion. `Some` = the next Character
 /// key is a literal target, not a command. Captures the params fixed at f-press time.
 pub struct PendingFind {
@@ -37,6 +42,8 @@ pub struct Editor {
     pub pending_find: Option<PendingFind>,
     pub pending_goto: bool,
     pub registers: Vec<String>,
+    pub undo_stack: Vec<HistoryEntry>,
+    pub redo_stack: Vec<HistoryEntry>,
 }
 
 impl Editor {
@@ -52,6 +59,8 @@ impl Editor {
             pending_find: None,
             pending_goto: false,
             registers: Vec::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         })
     }
 
@@ -146,7 +155,10 @@ impl Editor {
         if tx.changes().is_empty() {
             return;
         }
-        // Later: let inverse = tx.invert(self.document.rope()); push (inverse, old_self) to history
+
+        let inverse = tx
+            .invert(self.document.rope())
+            .with_selection(self.selection.clone());
 
         let new_selection = match tx.selection() {
             Some(sel) => sel.clone(),
@@ -154,7 +166,33 @@ impl Editor {
         };
 
         self.document.apply(&tx);
+        let forward = tx.with_selection(new_selection.clone());
         self.selection = new_selection;
+
+        self.undo_stack.push(HistoryEntry { forward, inverse });
+        self.redo_stack.clear();
+    }
+
+    pub fn undo(&mut self) {
+        if let Some(entry) = self.undo_stack.pop() {
+            self.apply_history(&entry.inverse);
+            self.redo_stack.push(entry);
+        }
+    }
+
+    pub fn redo(&mut self) {
+        if let Some(entry) = self.redo_stack.pop() {
+            self.apply_history(&entry.forward);
+            self.undo_stack.push(entry);
+        }
+    }
+
+    fn apply_history(&mut self, tx: &Transaction) {
+        self.document.apply(tx);
+        self.selection = match tx.selection() {
+            Some(sel) => sel.clone(),
+            None => self.selection.clone().map(tx.changes()),
+        };
     }
 
     fn goto(&mut self, pos: usize, extend: bool) {
@@ -669,5 +707,78 @@ mod tests {
         e.registers = vec!["X".to_string()]; // single value -> repeats for both cursors
         e.paste(false); // before each: from() == 0 and 1 (old coords)
         assert_eq!(e.document.rope().to_string(), "XaXb");
+    }
+
+    // ---- undo / redo (item 9) ----
+
+    #[test]
+    fn undo_restores_text_and_cursor() {
+        let mut e = editor_with("hello", 0);
+        e.insert_char('X'); // "Xhello", cursor at 1
+        e.undo();
+        assert_eq!(e.document.rope().to_string(), "hello");
+        assert_eq!(head(&e), 0); // pre-edit cursor restored
+    }
+
+    #[test]
+    fn redo_reapplies_edit() {
+        let mut e = editor_with("hello", 0);
+        e.insert_char('X');
+        e.undo();
+        e.redo();
+        assert_eq!(e.document.rope().to_string(), "Xhello");
+        assert_eq!(head(&e), 1); // post-edit cursor restored
+    }
+
+    #[test]
+    fn undo_redo_walks_multiple_steps() {
+        let mut e = editor_with("hello", 0);
+        e.insert_char('X'); // "Xhello"
+        e.insert_char('Y'); // "XYhello"
+        assert_eq!(e.document.rope().to_string(), "XYhello");
+        e.undo();
+        assert_eq!(e.document.rope().to_string(), "Xhello");
+        e.undo();
+        assert_eq!(e.document.rope().to_string(), "hello");
+        e.redo();
+        assert_eq!(e.document.rope().to_string(), "Xhello");
+        e.redo();
+        assert_eq!(e.document.rope().to_string(), "XYhello");
+    }
+
+    #[test]
+    fn undo_of_delete_restores_deleted_text() {
+        // proves the inverse captures the deleted text (delete txns don't store it)
+        let mut e = editor_with("hello", 0);
+        e.selection = Selection::single(0, 3); // "hel"
+        e.delete_selections(); // "lo"
+        assert_eq!(e.document.rope().to_string(), "lo");
+        e.undo();
+        assert_eq!(e.document.rope().to_string(), "hello");
+        // pre-edit selection restored
+        let r = e.selection.primary();
+        assert_eq!((r.anchor, r.head), (0, 3));
+    }
+
+    #[test]
+    fn new_edit_clears_redo_stack() {
+        let mut e = editor_with("hello", 0);
+        e.insert_char('X'); // "Xhello"
+        e.undo(); // "hello", redo_stack has 1 entry
+        assert_eq!(e.redo_stack.len(), 1);
+        e.insert_char('Y'); // new edit -> redo branch discarded
+        assert!(e.redo_stack.is_empty());
+        e.redo(); // no-op
+        assert_eq!(e.document.rope().to_string(), "Yhello");
+    }
+
+    #[test]
+    fn undo_on_empty_stack_is_noop() {
+        let mut e = editor_with("hello", 0);
+        e.undo();
+        e.redo();
+        assert_eq!(e.document.rope().to_string(), "hello");
+        assert!(e.undo_stack.is_empty());
+        assert!(e.redo_stack.is_empty());
     }
 }

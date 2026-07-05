@@ -5,6 +5,7 @@ use crate::selection::{Range, Selection};
 pub type Change = (usize, usize, Option<String>);
 pub type Deletion = (usize, usize);
 
+#[derive(Clone)]
 pub struct Transaction {
     changes: ChangeSet,
     selection: Option<Selection>,
@@ -562,7 +563,8 @@ mod tests {
         // one cursor at pos 1; insert "X" there
         let doc = Rope::from_str("abc");
         let sel = Selection::point(1);
-        let tx = Transaction::change_by_selection(&doc, &sel, |r| (r.head, r.head, Some("X".into())));
+        let tx =
+            Transaction::change_by_selection(&doc, &sel, |r| (r.head, r.head, Some("X".into())));
 
         let mut d = doc.clone();
         assert!(tx.apply(&mut d));
@@ -576,7 +578,8 @@ mod tests {
         // changes are emitted in OLD-doc coords, sorted -> from_changes stays valid
         let doc = Rope::from_str("abcdef");
         let sel = Selection::new(smallvec![Range::point(0), Range::point(3)], 0);
-        let tx = Transaction::change_by_selection(&doc, &sel, |r| (r.head, r.head, Some("X".into())));
+        let tx =
+            Transaction::change_by_selection(&doc, &sel, |r| (r.head, r.head, Some("X".into())));
 
         let mut d = doc.clone();
         assert!(tx.apply(&mut d));

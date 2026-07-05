@@ -83,6 +83,8 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "y" => editor.yank(),
             Key::Character(ch) if ch == "p" => editor.paste(true),
             Key::Character(ch) if ch == "P" => editor.paste(false),
+            Key::Character(ch) if ch == "u" => editor.undo(),
+            Key::Character(ch) if ch == "U" => editor.redo(),
             Key::Character(ch) if ch == "f" => {
                 editor.pending_find = Some(PendingFind {
                     count: n,
