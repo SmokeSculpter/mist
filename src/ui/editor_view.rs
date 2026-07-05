@@ -8,6 +8,7 @@ use crate::ui::render::{
 
 pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     let font = FontConfig::default();
+    let focus_tick = RwSignal::new(0);
 
     let lines = canvas(move |cx, size| {
         editor.with(|ed| {
@@ -26,7 +27,12 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     .on_event_stop(el::KeyDown, move |_cx, KeyboardEvent { key, .. }| {
         editor.update(|e| handle_key(e, key));
     })
-    .request_focus(|| {});
+    .on_event_stop(el::WindowGainedFocus, move |_cx, _| {
+        focus_tick.update(|n| *n += 1);
+    })
+    .request_focus(move || {
+        focus_tick.get();
+    });
 
     lines
 }

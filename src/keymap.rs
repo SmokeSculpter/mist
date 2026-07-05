@@ -78,6 +78,11 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "E" => editor.move_next_long_word_end(n),
             Key::Character(ch) if ch == "b" => editor.move_prev_word_start(n),
             Key::Character(ch) if ch == "B" => editor.move_prev_long_word_start(n),
+            Key::Character(ch) if ch == "d" => editor.delete_selections(),
+            Key::Character(ch) if ch == "c" => editor.change_selection(),
+            Key::Character(ch) if ch == "y" => editor.yank(),
+            Key::Character(ch) if ch == "p" => editor.paste(true),
+            Key::Character(ch) if ch == "P" => editor.paste(false),
             Key::Character(ch) if ch == "f" => {
                 editor.pending_find = Some(PendingFind {
                     count: n,
@@ -138,6 +143,11 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "A" => editor.insert_at_line_end(),
             Key::Character(ch) if ch == "o" => editor.open_below(),
             Key::Character(ch) if ch == "O" => editor.open_above(),
+            Key::Character(ch) if ch == "d" => editor.delete_selections(),
+            Key::Character(ch) if ch == "c" => editor.change_selection(),
+            Key::Character(ch) if ch == "y" => editor.yank(),
+            Key::Character(ch) if ch == "p" => editor.paste(true),
+            Key::Character(ch) if ch == "P" => editor.paste(false),
             Key::Character(ch) if ch == "h" => {
                 editor.move_h(Direction::Backward, n, Movement::Extend)
             }

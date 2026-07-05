@@ -36,6 +36,7 @@ pub struct Editor {
     pub count: Option<usize>,
     pub pending_find: Option<PendingFind>,
     pub pending_goto: bool,
+    pub registers: Vec<String>,
 }
 
 impl Editor {
@@ -50,7 +51,67 @@ impl Editor {
             count: None,
             pending_find: None,
             pending_goto: false,
+            registers: Vec::new(),
         })
+    }
+
+    fn yank_ranges(&mut self) {
+        let rope = self.document.rope().slice(..);
+        self.registers = self
+            .selection
+            .ranges()
+            .iter()
+            .map(|r| r.min_width_1(rope).slice(rope).to_string())
+            .collect();
+    }
+
+    pub fn yank(&mut self) {
+        self.yank_ranges();
+        self.enter_normal();
+    }
+
+    pub fn delete_selections(&mut self) {
+        self.yank_ranges();
+        let rope = self.document.rope().slice(..);
+        let tx = Transaction::change_by_selection(self.document.rope(), &self.selection, |r| {
+            let r = r.min_width_1(rope);
+            (r.from(), r.to(), None)
+        });
+        self.apply_transaction(tx);
+        self.enter_normal();
+    }
+
+    pub fn change_selection(&mut self) {
+        self.delete_selections();
+        self.mode = Mode::Insert;
+    }
+
+    pub fn paste(&mut self, after: bool) {
+        if self.registers.is_empty() {
+            return;
+        }
+
+        let rope = self.document.rope().slice(..);
+        let vals = self.registers.clone();
+        let mut carets: SmallVec<[Range; 1]> = SmallVec::new();
+        let mut offset = 0usize;
+        let tx = Transaction::change_by_selection(self.document.rope(), &self.selection, |r| {
+            let pos = if after {
+                r.min_width_1(rope).to()
+            } else {
+                r.from()
+            };
+            let value = vals[carets.len().min(vals.len() - 1)].clone();
+            let len = value.chars().count();
+            let anchor = pos + offset;
+            carets.push(Range::new(anchor, anchor + len));
+            offset += len;
+            (pos, pos, Some(value))
+        });
+
+        let sel = Selection::new(carets, self.selection.primary_index());
+        self.apply_transaction(tx.with_selection(sel));
+        self.enter_normal();
     }
 
     pub fn insert_char(&mut self, c: char) {
@@ -513,5 +574,100 @@ mod tests {
         assert_eq!(e.document.rope().to_string(), "ab\n\ncd");
         assert_eq!(head(&e), 3); // caret on the new empty line above old line 1
         assert!(is_point(&e));
+    }
+
+    // ---- yank / delete / change (item 8) ----
+
+    #[test]
+    fn yank_copies_selection_to_register_and_exits_select() {
+        let mut e = editor_with("hello", 0);
+        e.selection = Selection::single(0, 3); // "hel"
+        e.enter_select();
+        e.yank();
+        assert_eq!(e.registers, vec!["hel".to_string()]);
+        assert_eq!(e.mode, Mode::Normal);
+        assert_eq!(e.document.rope().to_string(), "hello"); // yank does not edit
+    }
+
+    #[test]
+    fn yank_resting_cursor_grabs_char_under_it() {
+        // min_width_1: a point cursor yanks the grapheme it sits on
+        let mut e = editor_with("hello", 1); // on 'e'
+        e.yank();
+        assert_eq!(e.registers, vec!["e".to_string()]);
+    }
+
+    #[test]
+    fn delete_selection_removes_text_fills_register_collapses() {
+        let mut e = editor_with("hello", 0);
+        e.selection = Selection::single(0, 3); // "hel"
+        e.delete_selections();
+        assert_eq!(e.document.rope().to_string(), "lo");
+        assert_eq!(e.registers, vec!["hel".to_string()]);
+        assert_eq!(e.mode, Mode::Normal);
+        assert_eq!(head(&e), 0); // collapsed to deletion point
+    }
+
+    #[test]
+    fn delete_resting_cursor_removes_one_grapheme() {
+        // min_width_1: `d` on a point deletes the char under it, not nothing
+        let mut e = editor_with("hello", 1); // on 'e'
+        e.delete_selections();
+        assert_eq!(e.document.rope().to_string(), "hllo");
+    }
+
+    #[test]
+    fn change_deletes_and_enters_insert() {
+        let mut e = editor_with("hello", 0);
+        e.selection = Selection::single(0, 3); // "hel"
+        e.change_selection();
+        assert_eq!(e.document.rope().to_string(), "lo");
+        assert_eq!(e.mode, Mode::Insert);
+        assert_eq!(e.registers, vec!["hel".to_string()]); // change also yanks
+        assert_eq!(head(&e), 0);
+    }
+
+    // ---- paste (item 8) ----
+
+    #[test]
+    fn paste_after_inserts_register_past_cursor() {
+        let mut e = editor_with("XY", 0); // on 'X'
+        e.registers = vec!["ab".to_string()];
+        e.paste(true); // after the grapheme under cursor (to() == 1)
+        assert_eq!(e.document.rope().to_string(), "XabY");
+    }
+
+    #[test]
+    fn paste_before_inserts_register_at_cursor() {
+        let mut e = editor_with("XY", 1); // on 'Y'
+        e.registers = vec!["ab".to_string()];
+        e.paste(false); // before the cursor (from() == 1)
+        assert_eq!(e.document.rope().to_string(), "XabY");
+    }
+
+    #[test]
+    fn paste_empty_register_is_noop() {
+        let mut e = editor_with("XY", 0);
+        e.paste(true);
+        assert_eq!(e.document.rope().to_string(), "XY");
+    }
+
+    #[test]
+    fn yank_then_paste_duplicates_text() {
+        let mut e = editor_with("hello", 0);
+        e.selection = Selection::single(0, 3); // "hel"
+        e.yank(); // register = ["hel"], selection kept
+        e.paste(true); // insert at to() == 3
+        assert_eq!(e.document.rope().to_string(), "helhello");
+    }
+
+    #[test]
+    fn multi_cursor_paste_offsets_each_insertion() {
+        use smallvec::smallvec;
+        let mut e = editor_with("ab", 0);
+        e.selection = Selection::new(smallvec![Range::point(0), Range::point(1)], 0);
+        e.registers = vec!["X".to_string()]; // single value -> repeats for both cursors
+        e.paste(false); // before each: from() == 0 and 1 (old coords)
+        assert_eq!(e.document.rope().to_string(), "XaXb");
     }
 }
