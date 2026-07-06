@@ -9,6 +9,7 @@ use floem::prelude::*;
 
 use crate::editor::Editor;
 use crate::keymap::handle_key;
+use crate::theme::Theme;
 use crate::ui::render::{
     FontConfig, paint_cursor, paint_selections, paint_text, plan_screen_lines,
 };
@@ -22,20 +23,26 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     // re-requests focus once the window is live (at launch and on every alt-tab back).
     let focus_tick = RwSignal::new(0);
 
+    let theme = Theme::default();
+    // Editor background is a floem style property (not painted in the canvas), so
+    // pull it out as a peniko color before `theme` moves into the paint closure.
+    let bg = theme.background.bg.map(|c| c.to_peniko());
+
     let lines = canvas(move |cx, size| {
         editor.with(|ed| {
-            let screen = plan_screen_lines(ed, size, &font);
+            let screen = plan_screen_lines(ed, size, &font, &theme);
             // Draw order: selection bg, then caret, then text on top.
-            paint_selections(cx, &screen);
-            paint_cursor(cx, &screen);
+            paint_selections(cx, &screen, &theme);
+            paint_cursor(cx, &screen, &theme);
             paint_text(cx, &screen);
         })
     })
-    .style(|s| {
-        s.keyboard_navigable()
-            .background(Color::from_rgb8(30, 30, 30))
-            .width_full()
-            .height_full()
+    .style(move |s| {
+        let s = s.keyboard_navigable().width_full().height_full();
+        match bg {
+            Some(c) => s.background(c),
+            None => s,
+        }
     })
     .on_event_stop(el::KeyDown, move |_cx, KeyboardEvent { key, .. }| {
         editor.update(|e| handle_key(e, key));

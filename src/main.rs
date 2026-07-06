@@ -8,6 +8,7 @@ mod mode;
 mod movement;
 mod search;
 mod selection;
+mod theme;
 mod transaction;
 mod ui;
 use floem::prelude::*;

@@ -9,13 +9,13 @@
 use floem::Renderer;
 use floem::context::PaintCx;
 use floem::kurbo::{Point, Rect, Size};
-use floem::peniko::Color;
 use floem::peniko::color::AlphaColor;
 use floem::text::{Affinity, Attrs, AttrsList, FamilyOwned, FontStyle, TextLayout};
 
 use crate::editor::Editor;
 use crate::grapheme::next_grapheme_boundary;
 use crate::mode::Mode;
+use crate::theme::Theme;
 
 /// Font/metrics config for the text surface. Previously these values were
 /// hardcoded inline in `editor_view.rs` (font_size 16, line_height 24,
@@ -69,7 +69,12 @@ pub struct LineInfo {
 /// metrics — returns data, draws nothing. This is the "make render testable"
 /// extraction: visible-line-range math + per-line layout + caret geometry live
 /// here, not in the paint closure.
-pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> ScreenLines {
+pub fn plan_screen_lines(
+    editor: &Editor,
+    size: Size,
+    font: &FontConfig,
+    theme: &Theme,
+) -> ScreenLines {
     let rope = editor.document.rope().slice(..);
     let mode = editor.mode;
 
@@ -90,11 +95,14 @@ pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> Scre
         let char_len = text.chars().count();
 
         let families = font.families.as_slice();
-        let attrs = Attrs::new()
+        let mut attrs = Attrs::new()
             .font_style(FontStyle::Normal)
             .family(families)
-            .color(AlphaColor::from_rgb8(220, 220, 220))
             .font_size(font.font_size);
+        if let Some(c) = theme.text.fg {
+            attrs = attrs.color(AlphaColor::from_rgb8(c.r, c.g, c.b));
+        }
+
         let mut attrs_list = AttrsList::new(attrs);
 
         let mut caret_bytes: Vec<(usize, usize)> = Vec::new();
@@ -113,15 +121,17 @@ pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> Scre
             let next_byte = editor.document.char_to_byte_in_line(next_col, line_slice);
 
             // Invert the glyph under a block cursor so it reads against the caret.
+            // Only recolor if the theme sets a cursor fg; otherwise leave the glyph
+            // its normal text color.
             if mode == Mode::Normal {
-                if let Some(ch) = text[byte..].chars().next() {
+                if let (Some(ch), Some(fg)) = (text[byte..].chars().next(), theme.cursor.fg) {
                     let end = byte + ch.len_utf8();
                     attrs_list.add_span(
                         byte..end,
                         Attrs::new()
                             .family(families)
                             .font_size(font.font_size)
-                            .color(AlphaColor::from_rgb8(30, 30, 30)),
+                            .color(AlphaColor::from_rgb8(fg.r, fg.g, fg.b)),
                     );
                 }
             }
@@ -193,10 +203,11 @@ pub fn plan_screen_lines(editor: &Editor, size: Size, font: &FontConfig) -> Scre
 }
 
 /// Fill block/bar caret rects. Drawn BEFORE text so glyphs sit on top.
-pub fn paint_cursor(cx: &mut PaintCx, screen: &ScreenLines) {
+pub fn paint_cursor(cx: &mut PaintCx, screen: &ScreenLines, theme: &Theme) {
+    let Some(color) = theme.cursor.bg else { return };
     for line in &screen.lines {
         for rect in &line.caret_rects {
-            cx.fill(rect, Color::from_rgb8(255, 255, 255), 0.0);
+            cx.fill(rect, color.to_peniko(), 0.0);
         }
     }
 }
@@ -208,10 +219,11 @@ pub fn paint_text(cx: &mut PaintCx, screen: &ScreenLines) {
     }
 }
 
-pub fn paint_selections(cx: &mut PaintCx, screen: &ScreenLines) {
+pub fn paint_selections(cx: &mut PaintCx, screen: &ScreenLines, theme: &Theme) {
+    let Some(color) = theme.selection.bg else { return };
     for line in &screen.lines {
         for rect in &line.selection_rects {
-            cx.fill(rect, Color::from_rgb8(38, 79, 120), 0.0);
+            cx.fill(rect, color.to_peniko(), 0.0);
         }
     }
 }
