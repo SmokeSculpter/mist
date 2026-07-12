@@ -7,14 +7,14 @@
 
 use floem::prelude::*;
 
-use crate::editor::Editor;
+use crate::command::Context;
 use crate::keymap::handle_key;
 use crate::theme::Theme;
 use crate::ui::render::{
     FontConfig, paint_cursor, paint_selections, paint_text, plan_screen_lines,
 };
 
-pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
+pub fn editor_view(ctx_state: RwSignal<Context>) -> impl View {
     let font = FontConfig::default();
     // Focus workaround: `.request_focus(when)` runs an Effect that requests focus
     // whenever `when` re-runs. A no-dep `when` fires only once at build — before the
@@ -29,8 +29,8 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
     let bg = theme.background.bg.map(|c| c.to_peniko());
 
     let lines = canvas(move |cx, size| {
-        editor.with(|ed| {
-            let screen = plan_screen_lines(ed, size, &font, &theme);
+        ctx_state.with(|ctx| {
+            let screen = plan_screen_lines(&ctx.editor, size, &font, &theme);
             // Draw order: selection bg, then caret, then text on top.
             paint_selections(cx, &screen, &theme);
             paint_cursor(cx, &screen, &theme);
@@ -45,7 +45,7 @@ pub fn editor_view(editor: RwSignal<Editor>) -> impl View {
         }
     })
     .on_event_stop(el::KeyDown, move |_cx, KeyboardEvent { key, .. }| {
-        editor.update(|e| handle_key(e, key));
+        ctx_state.update(|ctx| handle_key(ctx, key));
     })
     .on_event_stop(el::WindowGainedFocus, move |_cx, _| {
         focus_tick.update(|n| *n += 1);

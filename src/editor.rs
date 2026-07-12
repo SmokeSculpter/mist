@@ -658,7 +658,7 @@ mod tests {
     fn change_deletes_and_enters_insert() {
         let mut e = editor_with("hello", 0);
         e.selection = Selection::single(0, 3); // "hel"
-        e.change_selection();
+        e.change_selections();
         assert_eq!(e.document.rope().to_string(), "lo");
         assert_eq!(e.mode, Mode::Insert);
         assert_eq!(e.registers, vec!["hel".to_string()]); // change also yanks

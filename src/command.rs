@@ -8,8 +8,8 @@ use floem::{imbl::HashMap, prelude::Key};
 
 type OnKeyCallBack = Box<dyn FnOnce(&mut Context, &Key)>;
 
-pub struct Context<'a> {
-    pub editor: &'a mut Editor,
+pub struct Context {
+    pub editor: Editor,
     pub register: Vec<String>,
     pub on_next_key: Option<OnKeyCallBack>,
     pub count: Option<usize>,
@@ -21,8 +21,8 @@ pub struct Command {
     pub fun: fn(&mut Context),
 }
 
-impl<'a> Context<'a> {
-    pub fn new(editor: &'a mut Editor) -> Self {
+impl Context {
+    pub fn new(editor: Editor) -> Self {
         Self {
             editor,
             register: Vec::new(),
