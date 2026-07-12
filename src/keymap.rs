@@ -5,6 +5,7 @@
 //! machine; see the roadmap.
 
 use crate::{
+    command::{Context, STATIC_COMMAND_MAP},
     editor::{Editor, PendingFind},
     mode::Mode,
     movement::{Direction, Movement},
@@ -14,6 +15,42 @@ use floem::prelude::{Key, NamedKey};
 /// Interpret one keypress in the current mode and apply it to `editor`. Normal =
 /// motions collapse (`Movement::Move`); Select = the same motions extend
 /// (`Movement::Extend` / the `extend_*` word variants); Insert = Esc back to Normal.
+pub fn handle_key_temp(ctx: &mut Context, key: &Key) {
+    if let Some(callback) = ctx.on_next_key.take() {
+        callback(ctx, key);
+    }
+
+    if ctx.editor.mode != Mode::Insert {
+        if let Key::Character(ch) = key {
+            if let Ok(n) = ch.parse::<usize>() {
+                if ctx.count.is_some() {
+                    ctx.append_count_digit(n);
+                    return;
+                }
+            }
+        }
+    }
+
+    let run_command = |str: &str, ctx: &mut Context| {
+        if let Some(cmd) = STATIC_COMMAND_MAP.get(str) {
+            (cmd.fun)(ctx);
+        }
+    };
+
+    match ctx.editor.mode {
+        Mode::Normal => match key {
+            Key::Character(ch) if ch == "h" => run_command("move_cursor_left", ctx),
+            Key::Character(ch) if ch == "l" => run_command("move_cursor_right", ctx),
+            Key::Character(ch) if ch == "j" => run_command("move_cursor_up", ctx),
+            Key::Character(ch) if ch == "k" => run_command("move_cursor_down", ctx),
+            Key::Character(ch) if ch == "i" => run_command("enter_insert", ctx),
+            _ => {}
+        },
+        Mode::Select => {}
+        Mode::Insert => {}
+    }
+}
+
 pub fn handle_key(editor: &mut Editor, key: &Key) {
     // Awaiting f/t/F/T target -- early return gate
     if let Some(find) = editor.pending_find.take() {
@@ -79,7 +116,7 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "b" => editor.move_prev_word_start(n),
             Key::Character(ch) if ch == "B" => editor.move_prev_long_word_start(n),
             Key::Character(ch) if ch == "d" => editor.delete_selections(),
-            Key::Character(ch) if ch == "c" => editor.change_selection(),
+            Key::Character(ch) if ch == "c" => editor.change_selections(),
             Key::Character(ch) if ch == "y" => editor.yank(),
             Key::Character(ch) if ch == "p" => editor.paste(true),
             Key::Character(ch) if ch == "P" => editor.paste(false),
@@ -146,7 +183,7 @@ pub fn handle_key(editor: &mut Editor, key: &Key) {
             Key::Character(ch) if ch == "o" => editor.open_below(),
             Key::Character(ch) if ch == "O" => editor.open_above(),
             Key::Character(ch) if ch == "d" => editor.delete_selections(),
-            Key::Character(ch) if ch == "c" => editor.change_selection(),
+            Key::Character(ch) if ch == "c" => editor.change_selections(),
             Key::Character(ch) if ch == "y" => editor.yank(),
             Key::Character(ch) if ch == "p" => editor.paste(true),
             Key::Character(ch) if ch == "P" => editor.paste(false),
@@ -245,13 +282,19 @@ mod tests {
         let mut one = editor_with("beebee");
         handle_key(&mut one, &Key::Character("f".into()));
         handle_key(&mut one, &Key::Character("e".into()));
-        let p1 = one.selection.primary().cursor(one.document.rope().slice(..));
+        let p1 = one
+            .selection
+            .primary()
+            .cursor(one.document.rope().slice(..));
 
         let mut two = editor_with("beebee");
         handle_key(&mut two, &Key::Character("2".into()));
         handle_key(&mut two, &Key::Character("f".into()));
         handle_key(&mut two, &Key::Character("e".into()));
-        let p2 = two.selection.primary().cursor(two.document.rope().slice(..));
+        let p2 = two
+            .selection
+            .primary()
+            .cursor(two.document.rope().slice(..));
 
         assert_eq!(p1, 1); // first 'e'
         assert_eq!(p2, 2); // second 'e' — the count took effect

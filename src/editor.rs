@@ -90,7 +90,7 @@ impl Editor {
         self.enter_normal();
     }
 
-    pub fn change_selection(&mut self) {
+    pub fn change_selections(&mut self) {
         self.delete_selections();
         self.mode = Mode::Insert;
     }

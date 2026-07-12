@@ -1,4 +1,6 @@
 mod chars;
+mod command;
+mod context;
 mod document;
 mod editor;
 mod grapheme;
