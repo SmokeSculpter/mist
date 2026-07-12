@@ -14,4 +14,6 @@ smallvec = "1"
 anyhow = "1"
 unicode-general-category = "1.1.0"
 bitflags = "2.13.0"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+directories = "6"
 

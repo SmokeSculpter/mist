@@ -4,11 +4,29 @@
 //! pending-input motions (f/t, g-prefix) will grow this into a small input-state
 //! machine; see the roadmap.
 
+use std::sync::LazyLock;
+
 use crate::{
     command::{Context, STATIC_COMMAND_MAP},
     mode::Mode,
 };
-use floem::prelude::{Key, NamedKey};
+use floem::{
+    imbl::HashMap,
+    prelude::{Key, NamedKey},
+};
+
+type KeyMap = LazyLock<HashMap<&'static String, &'static fn(&mut Context)>>;
+
+struct KeyTree {
+    normal_map: KeyMap,
+    insert_map: KeyMap,
+    select_map: KeyMap,
+    pending_map: Option<KeyMap>,
+}
+
+impl KeyTree {
+    pub fn handle_key(&self, ctx: &mut Context) {}
+}
 
 /// Interpret one keypress in the current mode and apply it to `editor`. Normal =
 /// motions collapse (`Movement::Move`); Select = the same motions extend
