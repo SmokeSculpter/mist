@@ -141,6 +141,14 @@ impl Editor {
         self.apply_transaction(tx);
     }
 
+    pub fn insert_new_line(&mut self) {
+        self.insert_text("\n");
+    }
+
+    pub fn insert_tab(&mut self) {
+        self.insert_text("\t");
+    }
+
     pub fn delete_char_backward(&mut self) {
         let rope = self.document.rope().slice(..);
         let tx = Transaction::change_by_selection(self.document.rope(), &self.selection, |r| {

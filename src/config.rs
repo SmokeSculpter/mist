@@ -7,10 +7,12 @@ use std::{
     path::PathBuf,
 };
 
-#[derive(Debug)]
+// Config struct that holds settings that are used throughout Mist
+// We create default settings for each field then run the user defined
+// lua script to overwrite the default settings
 pub struct Config {
     theme: String,
-    keys: Vec<(String, String, String)>,
+    keys: Vec<KeyAction>,
 }
 
 impl Config {
@@ -20,6 +22,11 @@ impl Config {
             keys: Vec::new(),
         }
     }
+}
+
+pub enum KeyAction {
+    Add((String, String, String)),
+    Remove((String, String)),
 }
 
 fn config_file_path() -> Result<PathBuf> {
@@ -62,8 +69,21 @@ pub fn load_config() -> Result<Config> {
         let keys = lua.create_table()?;
         keys.set(
             "set",
-            scope.create_function(|_, (mode, key_set, theme): (String, String, String)| {
-                config.borrow_mut().keys.push((mode, key_set, theme));
+            scope.create_function(|_, (mode, key_set, command): (String, String, String)| {
+                config
+                    .borrow_mut()
+                    .keys
+                    .push(KeyAction::Add((mode, key_set, command)));
+                Ok(())
+            })?,
+        )?;
+        keys.set(
+            "unset",
+            scope.create_function(|_, (mode, key_set): (String, String)| {
+                config
+                    .borrow_mut()
+                    .keys
+                    .push(KeyAction::Remove((mode, key_set)));
                 Ok(())
             })?,
         )?;

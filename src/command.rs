@@ -2,6 +2,7 @@ use std::sync::LazyLock;
 
 use crate::{
     editor::{Editor, PendingFind},
+    keymap::KeyMap,
     movement::{Direction, Movement},
 };
 use floem::{imbl::HashMap, prelude::Key};
@@ -11,6 +12,7 @@ type OnKeyCallBack = Box<dyn FnOnce(&mut Context, &Key)>;
 pub struct Context {
     pub editor: Editor,
     pub register: Vec<String>,
+    pub key_buffer: Option<String>,
     pub on_next_key: Option<OnKeyCallBack>,
     pub count: Option<usize>,
 }
@@ -26,9 +28,14 @@ impl Context {
         Self {
             editor,
             register: Vec::new(),
+            key_buffer: None,
             on_next_key: None,
             count: None,
         }
+    }
+
+    pub fn get_key_buffer(&self) -> Option<String> {
+        self.key_buffer.clone()
     }
 
     // Append number to count.
@@ -505,6 +512,18 @@ static STATIC_COMMANDS: &[Command] = &[
         name: "goto_file_end_extend",
         fun: |ctx: &mut Context| {
             ctx.editor.goto_file_end(true);
+        },
+    },
+    Command {
+        name: "insert_new_line",
+        fun: |ctx: &mut Context| {
+            ctx.editor.insert_new_line();
+        },
+    },
+    Command {
+        name: "insert_tab",
+        fun: |ctx: &mut Context| {
+            ctx.editor.insert_tab();
         },
     },
 ];
